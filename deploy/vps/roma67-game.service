@@ -1,0 +1,36 @@
+[Unit]
+Description=Roma Operation 67 game server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=roma67
+Group=roma67
+WorkingDirectory=/opt/roma-operation-67
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=5179
+Environment=MAX_ROOMS=4
+Environment=ALLOWED_ORIGINS=https://89.19.211.4,https://67.jeshio.ru
+ExecStart=/usr/bin/node --max-old-space-size=384 /opt/roma-operation-67/dist-server/index.js
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+MemoryMax=512M
+CPUQuota=60%
+TasksMax=64
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+UMask=0077
+StandardOutput=append:/opt/roma-operation-67/logs/game.log
+StandardError=append:/opt/roma-operation-67/logs/game.log
+
+[Install]
+WantedBy=multi-user.target

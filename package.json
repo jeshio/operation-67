@@ -1,0 +1,30 @@
+{
+  "name": "roma-operation-67",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5177 --strictPort",
+    "build": "tsc --noEmit && vite build && pnpm build:server",
+    "preview": "vite preview --host 127.0.0.1 --port 4177 --strictPort",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "mobile": "node scripts/lan.mjs",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist-server/index.js",
+    "server": "tsx server/index.ts",
+    "start": "node dist-server/index.js"
+  },
+  "dependencies": {
+    "three": "^0.180.0",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "@types/three": "^0.180.0",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5"
+  },
+  "packageManager": "pnpm@10.33.2+sha512.a90faf6feeab71ad6c6e57f94e0fe1a12f5dcc22cd754db40ae9593eb6a3e0b6b12e3540218bb37ae083404b1f2ce6db2a4121e979829b4aff94b99f49da1cf8"
+}

@@ -1,0 +1,93 @@
+/* One flow owns all battle text; the measured boundary is also the camera boundary. */
+#battle-stack{position:absolute;z-index:19;left:50%;transform:translateX(-50%);width:min(400px,calc(100% - var(--safe-left,16px) - var(--safe-right,16px)));display:flex;flex-direction:column;gap:6px;pointer-events:none}
+#squad-slot:empty,#feed-slot:empty,#guide-slot:empty,#context-slot:empty,#notice-slot:empty{display:none}
+#context-slot{display:flex;flex-direction:column;gap:6px}
+#battle-stack #boss-bars,#battle-stack #objective,#battle-stack #break-note,#battle-stack #support-status,#battle-stack #adrenaline-status,#battle-stack #net-connection,#battle-stack #net-team,#battle-stack #net-feed,#battle-stack #guide,
+#battle-stack #last-stand,#battle-stack #power-banner,#battle-stack #achievement,#battle-stack #wave-banner,#battle-stack #dialogue{position:relative;inset:auto!important;transform:none!important;width:100%;max-width:none;margin:0;min-width:0}
+#battle-stack #net-team{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}
+#battle-stack #net-team>div{border-left-width:3px;padding:5px 8px;border-radius:7px;background:#173643f2;font-size:11px;align-items:center;min-width:0}
+#battle-stack #net-team .self{background:#244857f2}
+#battle-stack #net-team span{font-size:10px}
+#battle-stack #boss-bars{gap:4px}
+#battle-stack .boss-bar{height:auto;padding:6px 10px;background:#292b3bf5;border-color:#bf777d88;border-radius:8px}
+#battle-stack .boss-bar>div{font-size:11px;letter-spacing:.3px;display:flex;gap:8px}
+#battle-stack .boss-bar span{font-size:10px;white-space:nowrap;margin:0}
+#battle-stack .boss-bar i{height:4px;margin-top:5px}
+#battle-stack .boss-bars.crowded .boss-bar>div{display:flex}
+#battle-stack .boss-bars.crowded .boss-bar span{font-size:9px}
+#battle-stack #objective{padding:9px 12px;display:grid;grid-template-columns:1fr auto;gap:5px 8px;background:#143941f2;border-radius:10px}
+#battle-stack .objective-heading{margin:0;gap:7px}.objective-heading b{min-width:0}
+#battle-stack .objective-heading b{font-size:13px}#battle-stack #point-arrow{font-size:19px;line-height:18px}
+#battle-stack #point-status{font-size:9px;align-self:center;text-align:right;letter-spacing:0}
+#battle-stack .objective-track{grid-column:1/-1;height:4px;margin:0}
+#battle-stack #point-help{grid-column:1/-1;font-size:10px;line-height:1.2}
+#battle-stack #break-note{display:flex;justify-content:space-between;align-items:center;gap:12px;white-space:normal;text-align:left;background:#183d46f5;border-color:#8abfb04d;border-radius:10px;padding:9px 12px;line-height:1.3;letter-spacing:0}
+#break-note strong{font-size:12px;color:#effcf5;white-space:nowrap}#break-note span{font-size:11px;color:#c5e1dc;max-width:210px;text-align:right}
+#battle-stack #support-status,#battle-stack #adrenaline-status,#battle-stack #net-connection{font-size:11px;padding:6px 10px;line-height:1.3;background:#193e3ff2}
+#battle-stack #adrenaline-status{background:#633728f2;display:flex;align-items:center;justify-content:space-between;gap:6px}
+#battle-stack #adrenaline-status span{font-size:9px}
+#battle-stack #net-feed{font-size:11px;text-align:center;line-height:1.45;color:#e1ece8;background:#183643e8;border-radius:8px;padding:6px 9px;text-shadow:none;white-space:pre-line}
+#battle-stack #wave-banner,#battle-stack #achievement,#battle-stack #power-banner,#battle-stack #last-stand{padding:10px 12px;background:#143240ed;border:1px solid #a3c4c32e;border-radius:12px;text-shadow:none;text-align:center;white-space:normal}
+#battle-stack #wave-banner b{font-size:24px;letter-spacing:1px;margin-top:2px}
+#battle-stack #wave-banner>span{font-size:9px;letter-spacing:1px}
+#battle-stack #achievement>b{font-size:23px;line-height:1.1}
+#battle-stack #achievement>small{font-size:8px;letter-spacing:1px;margin-bottom:4px}
+#battle-stack #achievement>span{font-size:10px;letter-spacing:1px;margin-top:4px}
+#battle-stack #power-banner{font-size:35px;line-height:1;letter-spacing:-1px;color:#ffdda3;border-color:#d5b47966}
+#battle-stack #power-banner small{font-size:9px;letter-spacing:.5px;margin-top:6px;line-height:1.2}
+#battle-stack #last-stand{font-size:17px;color:#ffe0b0;font-weight:900;border-color:#e2ac6f88}
+#battle-stack #dialogue{padding:7px 10px;min-height:0;justify-content:center;border-radius:8px;background:#193843ef;border:0}
+#battle-stack .radio-icon{display:none}#battle-stack #dialogue>div{display:flex;align-items:baseline;gap:7px;min-width:0}
+#battle-stack #dialogue b{font-size:9px}#battle-stack #dialogue p{font-size:11px;line-height:1.3;margin:0;white-space:normal}
+#battle-stack #guide{padding:8px 12px;display:grid;grid-template-columns:65px 1fr;gap:0 10px;align-items:center;text-align:left}
+#battle-stack #guide>svg{grid-row:1/3;width:65px;height:34px;margin:0}#battle-stack #guide>b{font-size:13px;margin:0}#battle-stack #guide>small{font-size:10px}
+#upgrade-notice{position:relative;display:flex;gap:12px;align-items:center;padding:12px 14px 15px;border:1px solid color-mix(in srgb,var(--module-color),transparent 40%);border-radius:14px;background:linear-gradient(110deg,color-mix(in srgb,var(--module-color) 18%,#142b37),#142b37 70%);box-shadow:0 5px 16px #07243030;overflow:hidden;animation:module-arrives .3s ease-out}
+#upgrade-icon{flex:0 0 54px;height:54px;color:var(--module-color);background:#0c263696;border-radius:12px;display:grid;place-items:center}#upgrade-icon svg{width:46px;height:46px}
+.upgrade-copy{min-width:0}.upgrade-copy small{display:block;font-size:8px;letter-spacing:.7px;color:#b6d5d7;font-weight:700}.upgrade-copy b{display:block;font-size:17px;line-height:1.15;color:#fff4dc;margin:4px 0 5px}.upgrade-copy p{font-size:12px;line-height:1.35;color:#e3eeeb;margin:0}
+#upgrade-progress{position:absolute;bottom:0;left:0;right:0;height:3px;background:var(--module-color);transform-origin:left}
+@keyframes module-arrives{from{opacity:0;translate:0 6px}to{opacity:1;translate:0 0}}
+.battle-menu-open #battle-stack,.settings-open #battle-stack{visibility:hidden}.battle-menu-open #net-names{visibility:hidden}
+.net-card #net-feed{position:relative!important;inset:auto!important;transform:none!important;width:100%!important;max-width:none!important;margin-top:12px;font-size:11px;line-height:1.5;text-align:center;white-space:pre-line;color:#cfe1dd}
+.net-card #net-connection{position:relative;inset:auto;transform:none;max-width:none;width:100%;margin-top:8px}
+#battle-stack [hidden]{display:none!important}
+.touch-mode #battle-stack{width:min(360px,calc(100% - var(--safe-left) - var(--safe-right)))}
+.portrait-mode #battle-stack{width:calc(100% - var(--safe-left) - var(--safe-right));gap:5px}
+.portrait-mode #context-slot{gap:5px}
+.portrait-mode #battle-stack #net-team>div{padding:4px 7px;font-size:10px;line-height:14px}
+.portrait-mode #battle-stack #net-team span{font-size:9px}
+.portrait-mode #battle-stack .boss-bar>div{font-size:10px}.portrait-mode #battle-stack .boss-bar span{font-size:9px}
+.portrait-mode #battle-stack #break-note{padding:8px 10px}.portrait-mode #break-note span{font-size:10px;max-width:165px}
+@media(max-height:550px){
+ .touch-mode #battle-stack{gap:4px;width:min(340px,calc(100% - var(--safe-left) - var(--safe-right)))}
+ .touch-mode #context-slot{gap:4px}.touch-mode #battle-stack #point-help{display:none}
+ .touch-mode #battle-stack .boss-bar{padding:4px 7px}.touch-mode #battle-stack .boss-bar i{margin-top:3px}
+ .touch-mode #battle-stack #support-status{padding:4px 8px;font-size:10px}
+ .touch-mode #battle-stack #break-note{padding:6px 9px}.touch-mode #break-note strong{font-size:11px}
+ .touch-mode #upgrade-notice{padding:8px 10px 10px;gap:9px}.touch-mode #upgrade-icon{flex-basis:40px;height:40px}.touch-mode #upgrade-icon svg{width:36px;height:36px}
+ .touch-mode .upgrade-copy b{font-size:14px;margin:3px 0}.touch-mode .upgrade-copy p{font-size:11px}.touch-mode .upgrade-copy small{font-size:7px}
+ .touch-mode #battle-stack #wave-banner,.touch-mode #battle-stack #achievement,.touch-mode #battle-stack #power-banner{padding:6px 10px}
+ .touch-mode #battle-stack #net-feed{font-size:10px;padding:4px 8px}
+ .portrait-mode .touch-abilities{bottom:calc(var(--safe-bottom) + 98px)}
+ .portrait-mode .stick{bottom:calc(var(--safe-bottom) - 8px)}
+}
+@media(prefers-reduced-motion:reduce){#upgrade-notice{animation:none}}
+@media(max-height:550px){
+ .portrait-mode #battle-stack #net-team{grid-template-columns:repeat(4,minmax(0,1fr));gap:3px}
+ .portrait-mode #battle-stack #net-team>div{display:block;padding:3px 5px;font-size:9px;line-height:12px}
+ .portrait-mode #battle-stack #net-team b,.portrait-mode #battle-stack #net-team span{display:block;font-size:9px}
+ .portrait-mode #upgrade-notice{padding:6px 9px 8px}.portrait-mode .upgrade-copy small{display:none}.portrait-mode .upgrade-copy b{margin:0 0 3px}.portrait-mode .upgrade-copy p{font-size:10px;line-height:1.3}
+ .portrait-mode #battle-stack #net-feed{max-height:30px;overflow:hidden}
+ .portrait-mode .touch-abilities{bottom:calc(var(--safe-bottom) + 108px)}
+}
+.touch-mode:not(.portrait-mode) #battle-stack{left:var(--safe-left);right:var(--safe-right);transform:none;width:auto;display:grid;grid-template-columns:minmax(150px,1fr) minmax(200px,1.2fr) minmax(180px,1.1fr);gap:10px;align-items:start}
+.touch-mode:not(.portrait-mode) #squad-slot{grid-column:1;grid-row:1}
+.touch-mode:not(.portrait-mode) #context-slot{grid-column:2;grid-row:1/3}
+.touch-mode:not(.portrait-mode) #notice-slot,.touch-mode:not(.portrait-mode) #guide-slot,.touch-mode:not(.portrait-mode) #feed-slot{grid-column:3;grid-row:1}
+.touch-mode:not(.portrait-mode) #battle-stack #net-team{grid-template-columns:1fr}
+.touch-mode:not(.portrait-mode) #battle-stack #net-team>div{padding:3px 7px;line-height:12px;font-size:10px}
+.touch-mode:not(.portrait-mode) #battle-stack #upgrade-notice{padding:8px;gap:7px}
+.touch-mode:not(.portrait-mode) #upgrade-icon{flex-basis:32px;height:36px}.touch-mode:not(.portrait-mode) #upgrade-icon svg{width:30px;height:30px}
+.touch-mode:not(.portrait-mode) .upgrade-copy small{display:none}.touch-mode:not(.portrait-mode) .upgrade-copy b{font-size:13px}.touch-mode:not(.portrait-mode) .upgrade-copy p{font-size:10px}
+/* Focusing a menu control must never scroll the arena itself; dialogs scroll internally. */
+#app{overflow:clip}
+@media(max-height:550px){.touch-mode .upgrade-copy b:before{content:'✓ ';color:var(--module-color)}}

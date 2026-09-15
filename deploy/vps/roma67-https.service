@@ -1,0 +1,36 @@
+[Unit]
+Description=Roma Operation 67 isolated HTTPS
+After=network-online.target roma67-game.service
+Wants=network-online.target roma67-game.service
+
+[Service]
+Type=simple
+User=roma67
+Group=roma67
+WorkingDirectory=/opt/roma-operation-67
+Environment=XDG_DATA_HOME=/opt/roma-operation-67/data
+Environment=XDG_CONFIG_HOME=/opt/roma-operation-67/data/config
+ExecStart=/opt/roma-operation-67/bin/caddy run --config /opt/roma-operation-67/Caddyfile --adapter caddyfile
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+MemoryMax=192M
+CPUQuota=20%
+TasksMax=64
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/roma-operation-67/data
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+UMask=0077
+StandardOutput=append:/opt/roma-operation-67/logs/https.log
+StandardError=append:/opt/roma-operation-67/logs/https.log
+
+[Install]
+WantedBy=multi-user.target
