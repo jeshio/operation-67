@@ -77,7 +77,7 @@ export class OnlineUI {
     const connectionParent=overlayOpen?this.card:document.getElementById('context-slot')!;if(this.get('net-connection').parentElement!==connectionParent)connectionParent.append(this.get('net-connection'));
     this.get('net-room').hidden=!room;this.get('net-team').hidden=!room;
     const connection=this.get('net-connection');connection.textContent=g.connectionNotice;connection.hidden=!room||!playing||!g.connected||!g.connectionNotice;
-    const status=g.error||(g.recovering?'Восстанавливаем связь…':!g.connected?g.status:performance.now()<this.copiedUntil?this.copied:'');if(this.get('net-status').textContent!==status)this.get('net-status').textContent=status;
+    const status=g.error||(g.recovering?'Восстанавливаем бой…':!g.connected?g.status:performance.now()<this.copiedUntil?this.copied:'');if(this.get('net-status').textContent!==status)this.get('net-status').textContent=status;
     const now=performance.now();
     const words={joined:'вошёл в отряд',left:'вышел',lost:'потерял связь',returned:'снова на связи'};
     for(const e of g.presence.splice(0))this.feed.push({text:`${e.name} ${words[e.kind]}`,until:now+5000});
@@ -93,7 +93,7 @@ export class OnlineUI {
     }).filter(p=>p.x>=renderer.layout.free.left&&p.x<=renderer.layout.free.right&&p.y<=renderer.layout.free.bottom);
     for(const label of this.names.values())label.hidden=true;
     if(playing&&!overlayOpen)for(const p of placeNames(tags,renderer.layout.free)){const label=this.names.get(p.id)!;label.hidden=false;label.style.left=`${p.x}px`;label.style.top=`${p.y}px`;label.style.transform='none';}
-    const heading=g.recovering?'Восстанавливаем связь…':s.phase==='over'?'Отряд вернулся на базу':playing?'Бой продолжается':'Собираем отряд';this.get('net-heading').textContent=heading;
+    const heading=g.recovering?'Восстанавливаем бой…':s.phase==='over'?'Отряд вернулся на базу':playing?'Бой продолжается':'Собираем отряд';this.get('net-heading').textContent=heading;
     this.get('net-room-info').textContent=`${room.public?'Общая':'Личная'} комната ${room.code} · ${s.players.length}/4`;
     this.get('net-room-hint').textContent=g.awayMessage|| (playing?'Твой танк остаётся на арене. Меню не останавливает общий бой.':room.countdown!==null?`Начинаем через ${Math.ceil(room.countdown)}…`:room.owner===g.id?'Можно начать одному. Остальные подключатся по ходу боя.':'Ждём, когда создатель начнёт бой.');
     this.get('net-start').hidden=!!playing||room.owner!==g.id||room.countdown!==null;this.get('net-start').textContent=s.phase==='over'?'Ещё бой':'Начать бой';this.get('net-back').hidden=!playing;for(const id of ['net-start','net-back'])(this.get(id) as HTMLButtonElement).disabled=g.recovering;

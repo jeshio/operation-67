@@ -9,7 +9,7 @@ const values=new Map(),storage={getItem:k=>values.get(k)??null,setItem:(k,v)=>va
 const clients=new Set(),commands=new Map(),delay=ms=>new Promise(r=>setTimeout(r,ms));let previous=performance.now(),accumulator=0;
 const timer=setInterval(()=>{const now=performance.now(),dt=Math.min(.1,(now-previous)/1000);previous=now;accumulator+=dt;while(accumulator>=1/60){for(const g of clients)g.step(commands.get(g)??emptyInput());accumulator-=1/60;}for(const g of clients)g.render(dt,accumulator*60);},8);
 async function wait(check,label){const until=performance.now()+12000;while(!check()){if(performance.now()>until)throw Error(label+': '+[...clients].map(c=>c.error||c.status).join('; '));await delay(25);}}
-async function connect(key,skin,code){const g=new NetworkGame(storage,key);clients.add(g);g.enter({type:'join',mode:code?'code':'private',code,skin,name:key==='friend'?'Напарник':`Проверка ${skin}`});await wait(()=>!!g.state,'join');return g;}
+async function connect(key,skin,code){const g=new NetworkGame(storage,key,undefined,{endpoint:base.href.replace(/\/$/,'')});clients.add(g);g.enter({type:'join',mode:code?'code':'private',code,skin,name:key==='friend'?'Напарник':`Проверка ${skin}`});await wait(()=>!!g.state,'join');return g;}
 try{
  let own=await connect('own',0),id=own.id,code=own.room.code;const friend=await connect('friend',5,code);
  for(let skin=0;skin<6;skin++){

@@ -1,11 +1,8 @@
-import { PROTOCOL } from '../src/protocol';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CoopSimulation } from '../src/coop.ts';
 import { emptyInput } from '../src/simulation.ts';
-import { RoomService, type Peer } from '../server/rooms.ts';
 import { autopilot } from '../src/autopilot.ts';
-import type { ServerMessage } from '../src/protocol.ts';
 const battle=(n=2)=>{const s=new CoopSimulation();for(let i=1;i<=n;i++)s.addMember(-i,`Игрок ${i}`,i%6);s.start(false);s.spawnTimer=999;s.portals=[];s.enemies=[];s.obstacles=[];return s;};
 test('coop: death waits for wave completion, returns at 50 with no power; total defeat ends the round',()=>{
   const s=battle(),m=s.members.get(-1)!;m.shield=0;m.charge=60;m.streak=15;m.rapidTime=6;s.damageTank(m.tank,100);
@@ -35,19 +32,6 @@ test('coop: anyone can capture, additional players do not accelerate it; pickup 
   const s=battle();s.wave=1;s.beginWave();s.enemies=[];const p=s.members.get(-2)!;Object.assign(p.tank,s.capture);s.updateCapture(1);assert.equal(s.capture!.progress,1);
   Object.assign(s.members.get(-1)!.tank,{x:p.tank.x,z:p.tank.z});s.updateCapture(1);assert.equal(s.capture!.progress,2);
   p.tank.hp=50;s.pickups=[{id:999,x:p.tank.x,z:p.tank.z,kind:'heal',life:12}];s.inPlayer(p,()=>s.updatePickups(0));assert.equal(p.tank.hp,70);assert.equal(s.pickups.length,0);
-});
-const peer=()=>{const messages:ServerMessage[]=[];const p:Peer={send:m=>messages.push(structuredClone(m)),close:()=>{},seq:-1,ack:-1,input:emptyInput(),inputAt:0,messages:0,windowAt:0};return{p,messages};};
-test('rooms: private exclusion, quick join, four slots, reconnect identity, command deduplication and expiry',()=>{
-  const service=new RoomService();const clients=Array.from({length:6},peer);
-  clients.forEach(c=>service.receive(c.p,{type:'hello',version:PROTOCOL},1000));
-  service.receive(clients[0].p,{type:'join',mode:'private',name:'Рома',skin:0},1000);const room=clients[0].p.room!;
-  service.receive(clients[1].p,{type:'join',mode:'quick',name:'Другой',skin:1},1000);assert.notEqual(clients[1].p.room,room);
-  for(const i of [2,3,4])service.receive(clients[i].p,{type:'join',mode:'code',code:room.code,name:'Лев',skin:i},1000);
-  service.receive(clients[5].p,{type:'join',mode:'code',code:room.code,name:'Пятый',skin:0},1000);assert.equal(clients[5].messages.at(-1)?.type,'error');
-  const p=clients[0].p;service.receive(p,{type:'input',seq:1,input:{...emptyInput(),power:true}},1000);room.step(1/60,1001);service.receive(p,{type:'input',seq:1,input:{...emptyInput(),power:true}},1002);assert.equal(p.input.power,false);
-  const id=p.id!,token=p.token;room.sim.start(false);room.sim.members.get(id)!.shield=0;room.sim.damageTank(room.sim.members.get(id)!.tank,1000);room.disconnect(p,2000);
-  const re=peer();service.receive(re.p,{type:'hello',version:PROTOCOL,token},2001);service.receive(re.p,{type:'join',mode:'code',code:room.code,name:'Новое имя',skin:2},2001);assert.equal(re.p.id,id);assert.equal(room.sim.members.get(id)!.tank.hp,0);
-  for(const p of [...room.peers.values()])room.disconnect(p,3000);service.step(1/60,63001);assert.ok(!service.rooms.has(room.code));
 });
 for(const count of [2,4])test(`coop endurance: ${count} players through 45 waves, bounded objects and five clean restarts`,()=>{
   const s=new CoopSimulation();for(let i=1;i<=count;i++)s.addMember(-i,`Игрок${i}`,i);s.start(false);let steps=0;

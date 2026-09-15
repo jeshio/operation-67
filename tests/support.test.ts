@@ -7,7 +7,7 @@ import { MODULES, tankStats, type ModuleId } from '../src/modules';
 import { breakDuration, damageStage, deliveryStage } from '../src/support';
 import { SupportView } from '../src/support-view';
 import { TankCondition } from '../src/tank-condition';
-import { RoomService, type Peer } from '../server/rooms';
+import { HostSimulation } from '../src/net/host';
 import { PROTOCOL } from '../src/protocol';
 const team=(n=2)=>{const s=new CoopSimulation();for(let i=1;i<=n;i++)s.addMember(-i,`Игрок ${i}`,i%6);s.start(false);s.obstacles=[];s.spawnTimer=99999;s.remainingToSpawn=1;for(const m of s.members.values())m.shield=0;return s;};
 const step=(s:CoopSimulation,seconds:number)=>{for(let i=0;i<Math.round(seconds*60);i++)s.updateAll(1/60,new Map());};
@@ -69,10 +69,11 @@ test('launched adrenaline bullets retain splash strength after buff ends and fra
  const enemy=s.createEnemy('shooter',{x:bullet.x+1,z:bullet.z});s.enemies=[enemy];s.burstBullet(bullet);assert(Math.abs(enemy.hp-(50-15.6))<1e-8);
 });
 test('stale commands from former life are rejected and respawn clears already buffered input',()=>{
- const service=new RoomService();const make=():Peer=>({send(){},close(){},seq:-1,ack:-1,input:emptyInput(),inputAt:0,messages:0,windowAt:0});const p=make(),q=make();for(const x of [p,q])service.receive(x,{type:'hello',version:PROTOCOL},1000);service.receive(p,{type:'join',mode:'private',name:'Рома',skin:0},1000);const r=p.room!;service.receive(q,{type:'join',mode:'code',code:r.code,name:'Лев',skin:1},1000);r.sim.start(false);r.sim.spawnTimer=9999;
- const m=r.sim.members.get(p.id!)!;service.receive(p,{type:'input',seq:1,controlEpoch:0,input:{...emptyInput(),x:1,fire:true}},1000);m.shield=0;r.sim.damageTank(m.tank,500);r.sim.finishWave();const x=m.tank.x,epoch=m.tank.controlEpoch!;service.receive(p,{type:'input',seq:2,controlEpoch:0,input:{...emptyInput(),x:1,fire:true}},1001);assert.equal(p.seq,1);
- // Room notices an epoch change when it occurs during its own step; external fixtures release explicitly.
- r.step(1/60,1002);assert.equal(m.tank.x,x);service.receive(p,{type:'input',seq:3,controlEpoch:epoch,input:{...emptyInput(),x:1}},1003);r.step(1/60,1004);assert(m.tank.x>x);
+ const h=new HostSimulation();h.load({matchId:'m',round:1,hostEpoch:1,host:-1,checkpoint:null,nonce:'n',players:[-1,-2].map(id=>({id,name:'P',skin:0,connected:true,present:true,foreground:true}))});
+ const m=h.sim.members.get(-1)!;h.sim.obstacles=[];h.sim.spawnTimer=9999;
+ const input=(seq:number,controlEpoch:number)=>({...h.context,kind:'input' as const,frames:[{...h.context,playerId:-1,seq,controlEpoch,input:{...emptyInput(),x:1,fire:true}}]});
+ h.accept(input(1,0),-1,0);m.shield=0;h.sim.damageTank(m.tank,500);h.sim.finishWave();const x=m.tank.x;h.accept(input(2,0),-1,1);h.step(2);assert.equal(m.tank.x,x);
+ h.accept(input(3,m.tank.controlEpoch!),-1,3);h.step(4);assert(m.tank.x>x);
 });
 test('support models restore correct stage, use shared geometry and clear through five restarts; damage materials isolated',()=>{
  const sim=new Simulation();sim.start(false);sim.scheduleDelivery('boss',3,5);const view=new SupportView();view.update(sim,false);const flight=view.root.children[1];assert(!(flight.children[0] as THREE.Group).visible);sim.elapsed=6.5;view.update(sim,false);assert(flight.children[0].visible&&flight.children[1].visible);view.update(sim,true);assert(!flight.children[0].visible&&!flight.children[1].visible&&flight.children[2].visible);

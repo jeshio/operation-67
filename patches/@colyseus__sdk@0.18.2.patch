@@ -1,0 +1,93 @@
+diff --git a/build/transport/WebSocketTransport.cjs b/build/transport/WebSocketTransport.cjs
+index 602170a5e01ea5627b424663a0dee095289e3065..1dec1c4e04f41f8b46d47d922b997bc0e2f4bc7e 100644
+--- a/build/transport/WebSocketTransport.cjs
++++ b/build/transport/WebSocketTransport.cjs
+@@ -45,13 +45,19 @@ class WebSocketTransport {
+      * @param headers custom headers to send with the connection (only supported in Node.js. Web Browsers do not allow setting custom headers)
+      */
+     connect(url, headers) {
+-        try {
+-            // Node or Bun environments (supports custom headers)
+-            this.ws = new WebSocket(url, { headers, protocols: this.protocols });
+-        }
+-        catch (e) {
+-            // browser environment (custom headers not supported)
++        // Native browser WebSocket accepts protocols, never Node's options object.
++        // WebKit reports an error event for that invalid probe even if it is caught.
++        if (typeof window !== 'undefined') {
+             this.ws = new WebSocket(url, this.protocols);
++        } else {
++            try {
++                // Node or Bun environments (supports custom headers)
++                this.ws = new WebSocket(url, { headers, protocols: this.protocols });
++            }
++            catch (e) {
++                // browser environment (custom headers not supported)
++                this.ws = new WebSocket(url, this.protocols);
++            }
+         }
+         this.ws.binaryType = 'arraybuffer';
+         this.ws.onopen = (event) => { var _a, _b; return (_b = (_a = this.events).onopen) === null || _b === void 0 ? void 0 : _b.call(_a, event); };
+diff --git a/build/transport/WebSocketTransport.mjs b/build/transport/WebSocketTransport.mjs
+index 5b1d99fbc672c168a5123cc03c9f1aa2f367ea95..4a15bc34dcc6d5745a1fa467d8b147eef71e5f7d 100644
+--- a/build/transport/WebSocketTransport.mjs
++++ b/build/transport/WebSocketTransport.mjs
+@@ -46,13 +46,19 @@ class WebSocketTransport {
+      * @param headers custom headers to send with the connection (only supported in Node.js. Web Browsers do not allow setting custom headers)
+      */
+     connect(url, headers) {
+-        try {
+-            // Node or Bun environments (supports custom headers)
+-            this.ws = new WebSocket(url, { headers, protocols: this.protocols });
+-        }
+-        catch (e) {
+-            // browser environment (custom headers not supported)
++        // Native browser WebSocket accepts protocols, never Node's options object.
++        // WebKit reports an error event for that invalid probe even if it is caught.
++        if (typeof window !== 'undefined') {
+             this.ws = new WebSocket(url, this.protocols);
++        } else {
++            try {
++                // Node or Bun environments (supports custom headers)
++                this.ws = new WebSocket(url, { headers, protocols: this.protocols });
++            }
++            catch (e) {
++                // browser environment (custom headers not supported)
++                this.ws = new WebSocket(url, this.protocols);
++            }
+         }
+         this.ws.binaryType = 'arraybuffer';
+         this.ws.onopen = (event) => this.events.onopen?.(event);
+diff --git a/src/transport/WebSocketTransport.ts b/src/transport/WebSocketTransport.ts
+index 92e86383eca4ec2b15ffb2ee406e9b41597a1b85..2fa22bf1cf22e7264eed90b5ca78459c8e5fcb49 100644
+--- a/src/transport/WebSocketTransport.ts
++++ b/src/transport/WebSocketTransport.ts
+@@ -48,15 +48,21 @@ export class WebSocketTransport implements ITransport {
+      * @param headers custom headers to send with the connection (only supported in Node.js. Web Browsers do not allow setting custom headers)
+      */
+     public connect(url: string, headers?: any): void {
+-        try {
+-            // Node or Bun environments (supports custom headers)
+-            this.ws = new WebSocket(url, { headers, protocols: this.protocols });
+-
+-        } catch (e) {
+-            // browser environment (custom headers not supported)
++        // Native browser WebSocket accepts protocols, never Node's options object.
++        // WebKit reports an error event for that invalid probe even if it is caught.
++        if (typeof window !== 'undefined') {
+             this.ws = new WebSocket(url, this.protocols);
+-        }
++        } else {
++            try {
++                // Node or Bun environments (supports custom headers)
++                this.ws = new WebSocket(url, { headers, protocols: this.protocols });
+ 
++            } catch (e) {
++                // browser environment (custom headers not supported)
++                this.ws = new WebSocket(url, this.protocols);
++            }
++
++        }
+         this.ws.binaryType = 'arraybuffer';
+         this.ws.onopen = (event) => this.events.onopen?.(event);
+         this.ws.onmessage = (event) => this.events.onmessage?.(event);

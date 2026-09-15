@@ -123,3 +123,5 @@ body:has(#guide:not([hidden])) #wave-banner{display:none}
 .boss-bars.crowded .boss-bar span{display:block;margin-top:2px;letter-spacing:0}
 .touch-mode .boss-bars.crowded .boss-bar{height:auto;padding:5px 7px}
 .touch-mode .boss-bars.crowded .boss-bar i{margin-top:3px}
+
+.network-exit-notice{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:100;max-width:min(90vw,560px);padding:14px 20px;border-radius:12px;background:#102632;color:#fff;box-shadow:0 4px 24px #0006;text-align:center}

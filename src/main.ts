@@ -10,7 +10,7 @@ import { GameAudio } from './audio';
 import { GameStorage } from './storage';
 import { BattleRecords } from './records';
 import { GameUI } from './ui';
-import { NetworkGame } from './network';
+import { NetworkGame, primeNetwork } from './network';
 import { OnlineUI } from './online-ui';
 import { emptyInput } from './simulation';
 import { guardGameGestures, measureViewport } from './viewport';
@@ -21,6 +21,8 @@ let backend: Storage | null = null;
 try { backend = window.localStorage; } catch { /* Optional storage. */ }
 const qaMode = import.meta.env.DEV && new URLSearchParams(location.search).has('qa');
 const storage = new GameStorage(backend, qaMode ? 'roma-operation-67-qa' : undefined), audio = new GameAudio(storage);
+primeNetwork();
+setInterval(()=>{if(!document.hidden&&!document.body.classList.contains('network-mode'))primeNetwork();},5000);
 const profile=new GameProfile(backend,qaMode?'roma-online-profile-qa':'roma-online-profile');
 const solo=new Simulation();let simulation=solo;
 const onlineStorage=new GameStorage(backend,qaMode?'roma-online-qa':'roma-online-v1');
@@ -32,6 +34,7 @@ try {
   const renderer = new GameRenderer(document.querySelector('#arena')!);
   let controls: Controls;
   let network:NetworkGame|undefined,onlineUI:OnlineUI|undefined;
+  let qaInput:(()=>ReturnType<typeof controls.read>|undefined)|undefined;
   let queuedPower = false, queuedDash = false, queuedFire = false;
   let guide: GuideView; let wasAlive = true;let frameReset=true,backgrounded=false,graphicsLost=false;
   const clearInput = () => { controls?.clear(); queuedPower = queuedDash = queuedFire = false; network?.releaseInput(); };
@@ -94,7 +97,7 @@ try {
     applyViewport();
     if(frameReset){previous=now;accumulator=0;sampleTime=now;frameCount=0;frameReset=false;}
     const dt = Math.min((now - previous) / 1000, 0.1); previous = now;
-    const input = controls.read(simulation.player); queuedPower ||= input.power; queuedDash ||= !!input.dash; queuedFire ||= !!input.firePressed;
+    const input = qaInput?.() ?? controls.read(simulation.player); queuedPower ||= input.power; queuedDash ||= !!input.dash; queuedFire ||= !!input.firePressed;
     accumulator += dt;
     while (accumulator >= 1 / 60) {
       if(network){network.step(ui.settingsOpen||onlineUI?.blocked||simulation.player.hp<=0?{...emptyInput(),aim:input.aim}:{...input,power:queuedPower,dash:queuedDash,firePressed:queuedFire});queuedPower=queuedDash=queuedFire=false;accumulator-=1/60;continue;}
@@ -121,11 +124,11 @@ try {
     const suffix=qaMode?new URLSearchParams(location.search).get('guest')??'qa':'';
     network=new NetworkGame(backend,`roma-online-token${suffix}`);simulation=network.view;ui.reset();renderer.reset();renderer.resize();
     onlineUI=new OnlineUI(network,app,profile,onlineRecords,{gesture,settings:()=>{clearInput();onlineUI?.toggle(true);audio.pause();ui.settings();}});
-    network.onSnapshot=(state,room)=>onlineRecords.observe({score:state.score,wave:state.wave,time:state.elapsed,battleId:`${room.code}:${room.round}`,team:state.players.map(p=>p.name)},state.phase);
+    network.onCommit=commit=>onlineRecords.observe({score:commit.state.score,wave:commit.state.wave,time:commit.state.elapsed,battleId:`${commit.matchId}:${commit.round}`,team:commit.names},commit.state.phase);
     network.onRound=resetPresentation;network.onRestore=resetPresentation;
     network.onControlReset=clearInput;
     network.onConnectionLoss=()=>{clearInput();audio.pause();onlineUI?.toggle(true);frameReset=true;};
-    network.onLeave=()=>{if(!network)return;onlineRecords.flush();const u=new URL(location.href);u.searchParams.delete('room');history.replaceState(null,'',u);ui.settings(false);onlineUI?.destroy();onlineUI=undefined;network?.stop();network=undefined;simulation=solo;simulation.phase='menu';ui.reset();document.body.classList.remove('network-mode');renderer.reset();renderer.resize();clearInput();audio.reset();guide.reset();};
+    network.onLeave=(reason)=>{if(!network)return;if(reason){const notice=document.createElement('p');notice.className='network-exit-notice';notice.setAttribute('role','status');notice.textContent=reason;app.append(notice);setTimeout(()=>notice.remove(),12000);}onlineRecords.flush();const u=new URL(location.href);u.searchParams.delete('room');history.replaceState(null,'',u);ui.settings(false);onlineUI?.destroy();onlineUI=undefined;network?.stop();network=undefined;simulation=solo;simulation.phase='menu';ui.reset();document.body.classList.remove('network-mode');renderer.reset();renderer.resize();clearInput();audio.reset();guide.reset();};
     if(mode==='quick')onlineUI.requestJoin({mode:'quick'});
   };
   onlineButton.onclick=()=>enterOnline();
@@ -133,6 +136,7 @@ try {
   if(new URLSearchParams(location.search).has('room'))enterOnline();
   // Only local development with an explicit query exposes controls for integration QA.
   if (import.meta.env.DEV && qaMode) {
+    void import('./qa-multiplayer').then(({mountMultiplayerQA})=>{qaInput=mountMultiplayerQA(()=>enterOnline(),()=>network,()=>({fps}));});
     void import('./qa').then(({ mountQA }) => mountQA(simulation, renderer, start, () => ({ fps: +fps.toFixed(1), ...renderer.stats(), audio: audio.stats() }), controls,()=>{onlineUI?.toggle(false);return network;}));
   }
 } catch (error) {

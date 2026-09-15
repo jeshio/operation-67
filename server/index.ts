@@ -1,42 +1,50 @@
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WebSocketServer, WebSocket } from 'ws';
-import { RoomService, type Peer } from './rooms';
-import { emptyInput } from '../src/simulation';
-
-export function createGameServer({root=resolve('dist'),origins=process.env.ALLOWED_ORIGINS?.split(',')??[],maxRooms=Math.min(32,Math.max(1,Number(process.env.MAX_ROOMS)||32))}={}){
-  const rooms=new RoomService(maxRooms);
-  const http=createServer(async(req,res)=>{
-    if(req.url==='/health'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:true,rooms:rooms.rooms.size}));return;}
+import { Server } from '@colyseus/core';
+import { MeasuredTransport } from './transport';
+import { BattleRoom, RoomRegistry } from './rooms';
+import { NET } from '../src/net/config';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
+const errors:Record<string,string>={VERSION:'Обнови страницу: версия игры изменилась.',FULL:'В комнате уже четыре игрока.',NOT_FOUND:'Комната не найдена или уже закрыта.',INVALID:'Проверь имя и выбранный танк.',BUSY:'Все комнаты заняты. Попробуй позже.'};
+export function createGameServer({root=resolve('dist'),origins=process.env.ALLOWED_ORIGINS?.split(',')??[],maxRooms=Math.min(process.env.GAME_QA==='1'?128:32,Math.max(1,Number(process.env.MAX_ROOMS)||4)),qa=process.env.GAME_QA==='1'}={}){
+  const registry=new RoomRegistry(maxRooms);
+  const lag=qa?monitorEventLoopDelay({resolution:10}):undefined;lag?.enable();
+  const http=createServer();
+  const handler=async(req:IncomingMessage,res:ServerResponse)=>{
+    const origin=req.headers.origin;
+    if(origin&&origins.length&&!origins.includes(origin)){res.writeHead(403);res.end();return;}
+    if(origin){res.setHeader('Access-Control-Allow-Origin',origin);res.setHeader('Vary','Origin');res.setHeader('Access-Control-Allow-Headers','Content-Type');}
+    if(req.method==='OPTIONS'){res.writeHead(204);res.end();return;}
+    const json=(status:number,body:unknown)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(body));};
+    const pathname=new URL(req.url??'/', 'http://localhost').pathname;
+    if(pathname==='/health'){json(200,{ok:true,version:NET.version,rooms:registry.rooms.size});return;}
+    if(pathname==='/api/ping'){json(200,{ok:true,version:NET.version});return;}
+    if(pathname==='/api/rooms'){json(200,registry.directory());return;}
+    if(pathname==='/api/qa'&&qa){json(200,{...registry.debug(),runtime:{eventLoopP95Ms:(lag?.percentile(95)??0)/1e6,eventLoopP99Ms:(lag?.percentile(99)??0)/1e6,...transport.queueMetrics()}});lag?.reset();return;}
+    if(pathname==='/api/join'&&req.method==='POST'){
+      try{
+        let size=0;const parts:Buffer[]=[];
+        for await(const chunk of req){size+=chunk.length;if(size>NET.maxInputBytes){json(413,{code:'INVALID',message:errors.INVALID});return;}parts.push(chunk);}
+        const result=await registry.join(JSON.parse(Buffer.concat(parts).toString()));json(200,result);
+      }catch(error){const code=error instanceof Error&&errors[error.message]?error.message:'INVALID';json(code==='BUSY'?503:code==='NOT_FOUND'?404:400,{code,message:errors[code]});}
+      return;
+    }
     try{
-      const pathname=decodeURIComponent(new URL(req.url??'/', 'http://localhost').pathname);
-      const file=resolve(root,`.${pathname==='/'?'/index.html':pathname}`);if(!file.startsWith(resolve(root)+sep))throw Error();
+      const file=resolve(root,`.${decodeURIComponent(pathname)==='/'?'/index.html':decodeURIComponent(pathname)}`);if(!file.startsWith(resolve(root)+sep))throw Error();
       const mime:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.wav':'audio/wav','.ttf':'font/ttf','.woff2':'font/woff2','.svg':'image/svg+xml'};
       const content=await readFile(file);res.writeHead(200,{'Content-Type':mime[extname(file)]??'application/octet-stream','Cache-Control':extname(file)==='.html'?'no-cache':'public, max-age=3600','X-Content-Type-Options':'nosniff'});res.end(content);
     }catch{res.writeHead(404);res.end('Not found');}
-  });
-  const wss=new WebSocketServer({noServer:true,maxPayload:4096,perMessageDeflate:false});
-  http.on('upgrade',(req,socket,head)=>{
-    const origin=req.headers.origin;
-    if(req.url!=='/ws'||(origin&&origins.length&&!origins.includes(origin))){socket.destroy();return;}
-    if(wss.clients.size>=160){socket.destroy();return;}wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws,req));
-  });
-  wss.on('connection',ws=>{
-    let pong=true;const peer:Peer={seq:-1,ack:-1,input:emptyInput(),inputAt:0,messages:0,windowAt:0,send:m=>{if(ws.readyState===WebSocket.OPEN){if(ws.bufferedAmount>1_000_000){ws.close(1013);return;}ws.send(JSON.stringify(m));}},close:()=>ws.close(1000,'Открыта другая вкладка')};
-    ws.on('message',raw=>{try{rooms.receive(peer,JSON.parse(raw.toString()));}catch{ws.close(1007);}});
-    ws.on('close',()=>{rooms.rooms.size&&peer.room?.disconnect(peer,Date.now());clearInterval(heartbeat);});
-    ws.on('error',()=>ws.close());ws.on('pong',()=>{pong=true;});
-    const heartbeat=setInterval(()=>{if(!pong){ws.terminate();return;}pong=false;ws.ping();},10000);heartbeat.unref();
-  });
-  let previous=performance.now(),accumulator=0,frames=0;
-  const timer=setInterval(()=>{const now=performance.now();accumulator+=Math.min(.1,(now-previous)/1000);previous=now;while(accumulator>=1/60){rooms.step(1/60);accumulator-=1/60;if(++frames%3===0)for(const room of rooms.rooms.values())room.broadcast();}},8);
-  timer.unref();
-  return {http,rooms,close:()=>{clearInterval(timer);for(const ws of wss.clients)ws.terminate();wss.close();return new Promise<void>(r=>http.close(()=>r()));}};
+  };
+  const transport=new MeasuredTransport({server:http,maxPayload:NET.maxFrameBytes+4096,perMessageDeflate:false,verifyClient:(info:{origin:string})=>!info.origin||!origins.length||origins.includes(info.origin)},registry.metrics);
+  const game=new Server({transport,greet:false,gracefullyShutdown:false,express:app=>{app.get('/',handler);app.use(handler);}});
+  class RegisteredRoom extends BattleRoom {override onCreate(options:any){if(registry.rooms.size>=maxRooms||options.version!==NET.version||!registry.validIdentity(options.identity))throw Error('BUSY');super.onCreate({...options,registry});}}
+  game.define('battle',RegisteredRoom);
+  return{http,rooms:registry,game,listen:(port=5179,host='127.0.0.1')=>game.listen(port,host),close:()=>{lag?.disable();return game.gracefullyShutdown(false);}};
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
-  const app=createGameServer(),port=Number(process.env.PORT??5179),host=process.env.HOST??'127.0.0.1';
-  app.http.listen(port,host,()=>console.log(`ОПЕРАЦИЯ 67 · мультиплеер: http://${host}:${port}/`));
+  if(Number(process.versions.node.split('.')[0])<22)throw Error('Colyseus requires Node.js 22 or newer. Use Node.js 24.');
+  const app=createGameServer();void app.listen(Number(process.env.PORT??5179),process.env.HOST??'127.0.0.1').then(()=>console.log('ОПЕРАЦИЯ 67 · Colyseus · игрок-хост'));
   for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>void app.close().then(()=>process.exit()));
 }

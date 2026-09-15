@@ -1,4 +1,4 @@
-import { Simulation, emptyInput, type Tank, type Point, type Input, type Enemy, type Bullet, type GameEvent } from './simulation';
+import { Simulation, emptyInput, type SimulationCheckpoint, type Tank, type Point, type Input, type Enemy, type Bullet, type GameEvent } from './simulation';
 import { CONFIG as C, BALANCE as B, ENEMY_META, type EnemyKind } from './config';
 import { planWave, wavePacing } from './waves';
 import type { Callout } from './announcer';
@@ -22,6 +22,18 @@ export class CoopSimulation extends Simulation {
   members=new Map<number,Member>(); peak=1; private roster=new Set<number>(); private lastStandWave = -1; private deaths = new Set<number>(); tick=0; private eventSequence=0;
   get eventCursor(){return this.eventSequence;}
   constructor(seed=6702){super(seed);this.network=true;}
+  override exportCheckpoint() {
+    return { ...super.exportCheckpoint(), coop: structuredClone({ members: [...this.members.values()], peak: this.peak, roster: [...this.roster], lastStandWave: this.lastStandWave, deaths: [...this.deaths], tick: this.tick, eventSequence: this.eventSequence }) };
+  }
+  override importCheckpoint(checkpoint: SimulationCheckpoint & { coop?: CoopCheckpointData }) {
+    if (!checkpoint.coop) throw new Error('Missing cooperative checkpoint');
+    super.importCheckpoint(checkpoint);
+    const data = structuredClone(checkpoint.coop);
+    this.members = new Map(data.members.map(member => [member.id, member]));
+    this.peak = data.peak; this.roster = new Set(data.roster); this.lastStandWave = data.lastStandWave;
+    this.deaths = new Set(data.deaths); this.tick = data.tick; this.eventSequence = data.eventSequence;
+    this.network = true; this.allies = null; this.focus = undefined;
+  }
   override lootParticipants(){return [...this.members.values()].filter(m=>m.present).map(m=>m.tank);}
   override creditDamage(source:number|undefined,damage:number){const m=this.members.get(source??0);if(m)m.damage+=damage;}
   override targetPlayers(){return [...this.members.values()].filter(m=>m.present&&m.tank.hp>0).map(m=>m.tank);}
@@ -130,3 +142,9 @@ export class CoopSimulation extends Simulation {
   }
   state():BattleState{return {phase:this.phase,wave:this.wave,score:this.score,elapsed:this.elapsed,breakTime:this.breakTime,remaining:this.remainingToSpawn,peak:this.peak,players:[...this.members.values()].filter(m=>m.present),enemies:this.enemies,bullets:this.bullets,portals:this.portals,hazards:this.hazards,deliveries:this.deliveries,repairZone:this.repairZone,emergencyReadyAt:this.emergencyReadyAt,lootBatch:this.lootBatch,pickups:this.pickups,obstacles:this.obstacles,capture:this.capture};}
 }
+
+interface CoopCheckpointData {
+  members: Member[]; peak: number; roster: number[]; lastStandWave: number;
+  deaths: number[]; tick: number; eventSequence: number;
+}
+export type CoopCheckpoint = ReturnType<CoopSimulation['exportCheckpoint']>;

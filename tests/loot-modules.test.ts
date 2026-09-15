@@ -130,9 +130,8 @@ test('two simultaneous drivers can collect a module only once',()=>{
 });
 
 test('old protocol is rejected before granting a room identity',async()=>{
-  const {RoomService}=await import('../server/rooms');const {PROTOCOL}=await import('../src/protocol');const messages:any[]=[];
-  const peer={seq:-1,ack:-1,input:emptyInput(),inputAt:0,messages:0,windowAt:0,send:(m:unknown)=>messages.push(m),close(){}};
-  const rooms=new RoomService();rooms.receive(peer,{type:'hello',version:PROTOCOL-1});assert.equal(messages.at(-1).type,'error');assert.match(messages.at(-1).message,/Обнови страницу/);assert.equal(rooms.guests.size,0);
+ const {RoomRegistry}=await import('../server/rooms');const {PROTOCOL}=await import('../src/protocol');const rooms=new RoomRegistry();
+ await assert.rejects(rooms.join({version:PROTOCOL-1,request:{type:'join',mode:'quick',name:'Рома',skin:0}}),/VERSION/);assert.equal(rooms.rooms.size,0);
 });
 
 test('every module has a unique dark label color with readable light text',()=>{

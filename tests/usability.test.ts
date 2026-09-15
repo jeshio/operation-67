@@ -9,8 +9,8 @@ import { TouchState } from '../src/touch-state';
 import { GUN, muzzles } from '../src/weapons';
 import { OwnShots } from '../src/own-shots';
 import { AnnouncerGate } from '../src/announcer';
-import { RoomService, type Peer } from '../server/rooms';
-import type { ServerMessage } from '../src/protocol';
+import { BattleCoordinator } from '../server/coordinator';
+
 
 test('first ten waves have progressive totals, caps and pacing for every team size', () => {
   const counts=[2,4,4,6,8,10,12,15,18,22], caps=[2,2,3,4,5,6,7,8,10,12];
@@ -95,15 +95,9 @@ test('last survivor fires once after damage resolution, never on a wipe or depar
   const gate=new AnnouncerGate();assert.equal(gate.choose(['lastStand','legend'],0),'lastStand');gate.reset();assert.equal(gate.choose(['lastStand','power'],0),'power');assert.equal(gate.choose(['lastStand'],1),undefined);
 });
 
-test('presence notifications distinguish joins, brief drops, loss, restoration and final exit without initial roster replay',()=>{
-  const service=new RoomService();let now=10000;
-  const peer=()=>{const messages:ServerMessage[]=[];const p:Peer={send:m=>messages.push(m),close(){},seq:-1,ack:-1,input:emptyInput(),inputAt:0,messages:0,windowAt:0};service.receive(p,{type:'hello',version:PROTOCOL},now);return{p,messages};};
-  const a=peer();service.receive(a.p,{type:'join',mode:'private',name:'Рома',skin:0},now);const room=a.p.room!;const b=peer();service.receive(b.p,{type:'join',mode:'code',code:room.code,name:'Лев',skin:1},now);
-  const presence=()=>a.messages.filter((m):m is Extract<ServerMessage,{type:'presence'}>=>m.type==='presence').map(m=>m.event.kind);
-  assert.deepEqual(presence(),['joined']);assert(!b.messages.some(m=>m.type==='presence'));
-  room.disconnect(b.p,now);now+=2000;service.step(1/60,now);room.join(b.p,'Лев',1,now);assert.deepEqual(presence(),['joined']);
-  room.disconnect(b.p,now);now+=3100;service.step(1/60,now);service.step(1/60,now);assert.deepEqual(presence(),['joined','lost']);
-  room.join(b.p,'Лев',1,now);assert.deepEqual(presence(),['joined','lost','returned']);service.receive(b.p,{type:'leave'},now);assert.deepEqual(presence(),['joined','lost','returned','left']);
-  room.join(b.p,'Лев',1,now);room.disconnect(b.p,now);now+=31000;service.step(1/60,now);assert.equal(presence().at(-1),'left');
-  const c=peer();room.join(c.p,'Друг',2,now);room.disconnect(a.p,now,true);assert.equal(room.owner,c.p.id);
+test('presence distinguishes join, loss, restoration and final exit; owner transfers independently',()=>{
+ let now=10000;const events:string[]=[];const c=new BattleCoordinator('m','ABCDEF',false,{send(){},broadcast(type,data:any){if(type==='presence')events.push(data.kind);},changed(){},closed(){}},()=>now);
+ const a=c.join('a','Рома',0),b=c.join('b','Лев',1);assert.deepEqual(events,['joined','joined']);
+ c.disconnect(b);assert.equal(events.at(-1),'lost');c.join('b','Лев',1);assert.equal(events.at(-1),'returned');c.disconnect(b,true);assert.equal(events.at(-1),'left');
+ c.join('b','Лев',1);c.disconnect(b);now+=30001;c.tick();assert.equal(events.at(-1),'left');c.join('c','Друг',2);c.disconnect(a,true);assert.equal(c.info.owner,-3);
 });

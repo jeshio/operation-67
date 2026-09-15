@@ -9,15 +9,32 @@
     "preview": "vite preview --host 127.0.0.1 --port 4177 --strictPort",
     "test": "node --import tsx --test tests/*.test.ts",
     "mobile": "node scripts/lan.mjs",
-    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist-server/index.js",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --alias:colyseus/plugins/webrtc=./node_modules/colyseus/build/plugins/webrtc.mjs --outfile=dist-server/index.js",
     "server": "tsx server/index.ts",
-    "start": "node dist-server/index.js"
+    "start": "node dist-server/index.js",
+    "qa:build": "vite build --config vite.qa.config.ts",
+    "qa:serve": "vite preview --config vite.qa.config.ts --host 127.0.0.1 --port 5197 --strictPort",
+    "test:browsers": "node scripts/check-multiplayer-browsers.mjs",
+    "test:load": "node --import tsx scripts/load-multiplayer.ts --room battle",
+    "test:capacity": "node scripts/capacity/run.mjs",
+    "package:capacity": "node scripts/capacity/package.mjs",
+    "package:vps": "node scripts/package-vps.mjs"
   },
   "dependencies": {
+    "@colyseus/core": "0.18.10",
+    "@colyseus/schema": "5.0.32",
+    "@colyseus/sdk": "0.18.2",
+    "@colyseus/ws-transport": "0.18.2",
+    "@msgpack/msgpack": "3.1.3",
+    "colyseus": "0.18.5",
+    "express": "5.2.1",
     "three": "^0.180.0",
     "ws": "^8.21.3"
   },
   "devDependencies": {
+    "@colyseus/loadtest": "0.18.2",
+    "@colyseus/testing": "0.18.5",
+    "@playwright/test": "1.62.1",
     "@types/node": "^22.20.2",
     "@types/three": "^0.180.0",
     "@types/ws": "^8.18.1",
@@ -26,5 +43,8 @@
     "typescript": "^5.9.2",
     "vite": "^7.1.5"
   },
-  "packageManager": "pnpm@10.33.2+sha512.a90faf6feeab71ad6c6e57f94e0fe1a12f5dcc22cd754db40ae9593eb6a3e0b6b12e3540218bb37ae083404b1f2ce6db2a4121e979829b4aff94b99f49da1cf8"
+  "packageManager": "pnpm@10.33.2+sha512.a90faf6feeab71ad6c6e57f94e0fe1a12f5dcc22cd754db40ae9593eb6a3e0b6b12e3540218bb37ae083404b1f2ce6db2a4121e979829b4aff94b99f49da1cf8",
+  "engines": {
+    "node": ">=22"
+  }
 }

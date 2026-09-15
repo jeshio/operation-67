@@ -1,0 +1,12 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Операция 67 — четыре игрока</title>
+<style>body{margin:0;background:#0c202b;color:#e9e4d4;font:14px system-ui}header{padding:12px;display:flex;gap:12px;align-items:center}button{padding:8px}main{height:calc(100vh - 60px);display:grid;grid-template-columns:1fr 1fr;gap:4px}iframe{border:0;width:100%;height:100%;background:#102632}</style>
+<header><b>Четыре игрока · QA</b><button id="join">Новый отряд</button><button id="bots">Включить ботов</button><button id="relay">Через сервер</button><button id="direct">Напрямую</button><button id="crash">Отключить хоста</button><span id="status"></span></header><main></main>
+<script type="module">
+const frames=Array.from({length:4},(_,i)=>{const frame=document.createElement('iframe');frame.src=`./?qa&guest=${i+1}`;document.querySelector('main').append(frame);return frame;});
+const api=i=>frames[i].contentWindow.__multiplayerQA;
+const wait=async fn=>{for(let i=0;i<300;i++){if(fn())return;await new Promise(r=>setTimeout(r,50));}throw Error('Истекло время ожидания');};
+document.querySelector('#join').onclick=async()=>{try{await wait(()=>frames.every((_,i)=>api(i)));await api(0).join('public');await wait(()=>api(0).state().room);const code=api(0).state().room.code;for(let i=1;i<4;i++)await api(i).join('code',code);document.querySelector('#status').textContent=`Комната ${code}`;}catch(e){document.querySelector('#status').textContent=e.message;}};
+document.querySelector('#bots').onclick=()=>frames.forEach((_,i)=>api(i).bot());
+for(const route of ['relay','direct'])document.querySelector(`#${route}`).onclick=()=>frames.forEach((_,i)=>api(i).route(route));
+document.querySelector('#crash').onclick=()=>frames.forEach((_,i)=>{const s=api(i).state();if(s.id===s.room?.host)api(i).crash();});
+</script></html>

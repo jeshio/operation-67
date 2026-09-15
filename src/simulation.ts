@@ -8,16 +8,16 @@ import { planWave, bossScale, bossCaption, captureDuration, wavePacing, type Wav
 import { CALLOUTS, type Callout } from './announcer';
 export type Phase = 'menu' | 'intro' | 'playing' | 'paused' | 'dying' | 'over';
 export interface Point { x: number; z: number; }
-export interface Input { x: number; z: number; aim: Point; fire: boolean; firePressed?: boolean; power: boolean; dash?: boolean; }
+export interface Input { x: number; z: number; aim: Point; fire: boolean; firePressed?: boolean; power: boolean; dash?: boolean; shotId?: string; }
 export interface Tank extends Point { id: number; angle: number; bodyAngle: number; hp: number; maxHp: number; cooldown: number; recoil: number; displayName?: string; skin?: number; netPower?: number; netShield?: number; modules?: ModuleId[]; lastDamageAt?: number; ramHits?: number[]; adrenaline?: boolean; controlEpoch?: number; knockback?:Knockback; }
 export interface Enemy extends Tank { kind: EnemyKind; shotDelay: number; path: Point[]; pathTimer: number; state: 'move' | 'windup' | 'execute' | 'recover'; stateTime: number; target: Point; attack: number; attackHit: boolean; enraged: boolean; burst: number; hitPlayers?: number[]; targetId?: number; }
-export interface Bullet extends Point { id: number; vx: number; vz: number; owner: 'roma' | 'lev' | 'enemy'; damage: number; life: number; power: boolean; weapon?: string; source?: number; y?: number; barrel?: number; hitIds?: number[]; pierce?: boolean; splash?: boolean; splashDamage?: number; }
+export interface Bullet extends Point { id: number; vx: number; vz: number; owner: 'roma' | 'lev' | 'enemy'; damage: number; life: number; power: boolean; weapon?: string; source?: number; y?: number; barrel?: number; hitIds?: number[]; pierce?: boolean; splash?: boolean; splashDamage?: number; predictionId?: string; }
 export interface Portal extends Point { id: number; remaining: number; kind: EnemyKind; }
 export interface Hazard extends Point { id: number; source: number; kind: 'circle' | 'line'; angle: number; radius: number; length: number; delay: number; life: number; damage: number; hit: boolean; blockedByCover: boolean; hitPlayers?: number[]; }
 export interface Pickup extends Point { id: number; kind: 'heal' | 'charge' | 'rapid' | 'module'; life: number; module?: ModuleId; flight?: { from: Point; remaining: number; delay: number }; landedAt?: number; batchId?: number; deliveryId?:number; reward?:'mini'|'boss'|'emergency'; }
 export interface LootBatch { id:number; eligible:number[]; claimed:number[]; }
 export interface Capture extends Point { name: string; progress: number; hold: number; duration: number; status: 'capture' | 'hold' | 'contested' | 'away' | 'complete'; }
-export interface GameEvent extends Point { type: 'shot' | 'hit' | 'explode' | 'heal' | 'power' | 'ready' | 'wave' | 'over' | 'line' | 'crate' | 'shield' | 'dash' | 'pickup' | 'capture' | 'warning' | 'phase' | 'achievement' | 'lastStand' | 'landing' | 'upgrade' | 'supply' | 'supplyLand' | 'zoneRepair' | 'knockback'; owner?: string; text?: string; source?: number; target?: number; weapon?: string; damage?: number; hpAfter?: number; maxHp?: number; tier?: 'regular' | 'mini' | 'boss'; module?: ModuleId; pickupKind?: Pickup['kind']; amount?: number; callout?: Callout; actorId?: number; eventId?: number; tick?: number; powered?: boolean; muzzles?: (Muzzle & { bulletId: number; vx: number; vz: number })[]; }
+export interface GameEvent extends Point { shotId?: string; type: 'shot' | 'hit' | 'explode' | 'heal' | 'power' | 'ready' | 'wave' | 'over' | 'line' | 'crate' | 'shield' | 'dash' | 'pickup' | 'capture' | 'warning' | 'phase' | 'achievement' | 'lastStand' | 'landing' | 'upgrade' | 'supply' | 'supplyLand' | 'zoneRepair' | 'knockback'; owner?: string; text?: string; source?: number; target?: number; weapon?: string; damage?: number; hpAfter?: number; maxHp?: number; tier?: 'regular' | 'mini' | 'boss'; module?: ModuleId; pickupKind?: Pickup['kind']; amount?: number; callout?: Callout; actorId?: number; eventId?: number; tick?: number; powered?: boolean; muzzles?: (Muzzle & { bulletId: number; vx: number; vz: number })[]; }
 export const emptyInput = (): Input => ({ x: 0, z: 0, aim: { x: 0, z: -4 }, fire: false, power: false, dash: false });
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.z - b.z);
 const tank = (id: number, x: number, z: number, hp: number): Tank => ({ id, x, z, hp, maxHp: hp, angle: Math.PI, bodyAngle: Math.PI, cooldown: 0, recoil: 0 });
@@ -41,6 +41,105 @@ export class Simulation {
   protected dashDirection: Point = { x: 0, z: 1 }; protected dropIndex = 0;
   moved = 0; fired = 0; kills = 0; protected nextId = 2; private seed: number; private levPath: Point[] = []; private levPathTimer = 0;
   constructor(seed = 6702) { this.seed = seed; }
+  /** Complete simulation data, captured only between fixed steps. No renderer or transport state. */
+  exportCheckpoint() {
+    return structuredClone({ version: 1 as const, core: {
+      player: this.player,
+      lev: this.lev,
+      lootBatch: this.lootBatch,
+      deliveries: this.deliveries,
+      repairZone: this.repairZone,
+      emergencyReadyAt: this.emergencyReadyAt,
+      bossWarned: this.bossWarned,
+      phase: this.phase,
+      previousPhase: this.previousPhase,
+      enemies: this.enemies,
+      bullets: this.bullets,
+      portals: this.portals,
+      obstacles: this.obstacles,
+      events: this.events,
+      hazards: this.hazards,
+      pickups: this.pickups,
+      capture: this.capture,
+      wavePlan: this.wavePlan,
+      wave: this.wave,
+      score: this.score,
+      elapsed: this.elapsed,
+      charge: this.charge,
+      powerTime: this.powerTime,
+      healTimer: this.healTimer,
+      breakTime: this.breakTime,
+      spawnTimer: this.spawnTimer,
+      remainingToSpawn: this.remainingToSpawn,
+      spawnIndex: this.spawnIndex,
+      introTime: this.introTime,
+      dashTime: this.dashTime,
+      dashCooldown: this.dashCooldown,
+      rapidTime: this.rapidTime,
+      deathTime: this.deathTime,
+      streak: this.streak,
+      powerKills: this.powerKills,
+      regularKills: this.regularKills,
+      dashDirection: this.dashDirection,
+      dropIndex: this.dropIndex,
+      moved: this.moved,
+      fired: this.fired,
+      kills: this.kills,
+      nextId: this.nextId,
+      seed: this.seed,
+      levPath: this.levPath,
+      levPathTimer: this.levPathTimer,
+    } });
+  }
+  importCheckpoint(checkpoint: SimulationCheckpoint) {
+    if (checkpoint.version !== 1) throw new Error('Unsupported simulation checkpoint');
+    const data = structuredClone(checkpoint.core);
+    this.player = data.player;
+    this.lev = data.lev;
+    this.lootBatch = data.lootBatch;
+    this.deliveries = data.deliveries;
+    this.repairZone = data.repairZone;
+    this.emergencyReadyAt = data.emergencyReadyAt;
+    this.bossWarned = data.bossWarned;
+    this.phase = data.phase;
+    this.previousPhase = data.previousPhase;
+    this.enemies = data.enemies;
+    this.bullets = data.bullets;
+    this.portals = data.portals;
+    this.obstacles = data.obstacles;
+    this.events = data.events;
+    this.hazards = data.hazards;
+    this.pickups = data.pickups;
+    this.capture = data.capture;
+    this.wavePlan = data.wavePlan;
+    this.wave = data.wave;
+    this.score = data.score;
+    this.elapsed = data.elapsed;
+    this.charge = data.charge;
+    this.powerTime = data.powerTime;
+    this.healTimer = data.healTimer;
+    this.breakTime = data.breakTime;
+    this.spawnTimer = data.spawnTimer;
+    this.remainingToSpawn = data.remainingToSpawn;
+    this.spawnIndex = data.spawnIndex;
+    this.introTime = data.introTime;
+    this.dashTime = data.dashTime;
+    this.dashCooldown = data.dashCooldown;
+    this.rapidTime = data.rapidTime;
+    this.deathTime = data.deathTime;
+    this.streak = data.streak;
+    this.powerKills = data.powerKills;
+    this.regularKills = data.regularKills;
+    this.dashDirection = data.dashDirection;
+    this.dropIndex = data.dropIndex;
+    this.moved = data.moved;
+    this.fired = data.fired;
+    this.kills = data.kills;
+    this.nextId = data.nextId;
+    this.seed = data.seed;
+    this.levPath = data.levPath;
+    this.levPathTimer = data.levPathTimer;
+  }
   random() { this.seed |= 0; this.seed = this.seed + 0x6D2B79F5 | 0; let t = Math.imul(this.seed ^ this.seed >>> 15, 1 | this.seed); t ^= t + Math.imul(t ^ t >>> 7, 61 | t); return ((t ^ t >>> 14) >>> 0) / 4294967296; }
   emit(type: GameEvent['type'], at: Point = this.player, text?: string, owner?: string, data: Partial<GameEvent> = {}) { this.events.push({ type, x: at.x, z: at.z, text, owner, ...data }); }
   announce(callout: Callout) { this.emit('achievement', this.player, CALLOUTS[callout].text, undefined, { callout }); }
@@ -153,7 +252,7 @@ export class Simulation {
     const p = path[0], len = distance(t, p), step = Math.min(speed * dt, len);
     this.move(t, (p.x - t.x) / len * step, (p.z - t.z) / len * step, radius);
   }
-  shoot(t: Tank, owner: Bullet['owner'], damage: number, power = false, weapon: string = owner, angle = t.angle) {
+  shoot(t: Tank, owner: Bullet['owner'], damage: number, power = false, weapon: string = owner, angle = t.angle, predictionId?: string) {
     const sx = Math.sin(angle), sz = Math.cos(angle), speed = owner === 'enemy' ? 10 : tankStats(t).bulletSpeed;
     const tips = owner === 'enemy' ? [{ x: t.x + sx * 1.25, z: t.z + sz * 1.25, y: .75, barrel: 0 }]
       : muzzles({ ...t, angle, recoil: 1 }, power, owner === 'lev' ? GUN.levScale : 1);
@@ -162,10 +261,10 @@ export class Simulation {
       if (this.bullets.length >= C.limits.bullets) break;
       if (!this.lineOfSight(t, tip)) { this.emit('hit', t); continue; }
       const id = this.nextId++, vx = sx * speed, vz = sz * speed;
-      this.bullets.push({ ...tip, id, vx, vz, owner, damage, life: 4, power, weapon, source: t.id, pierce:hasModule(t,'pierce'), splash:hasModule(t,'splash'), splashDamage:12*tankStats(t).damageMultiplier, hitIds:[] });
+      this.bullets.push({ ...tip, id, vx, vz, owner, damage, life: 4, power, weapon, source: t.id, pierce:hasModule(t,'pierce'), splash:hasModule(t,'splash'), splashDamage:12*tankStats(t).damageMultiplier, hitIds:[], ...(predictionId ? {predictionId: `${predictionId}:${tip.barrel}`} : {}) });
       shots.push({ ...tip, bulletId: id, vx, vz });
     }
-    if (shots.length) { t.recoil = 1; this.emit('shot', t, undefined, owner, { source: t.id, weapon, powered: power, muzzles: shots }); }
+    if (shots.length) { t.recoil = 1; this.emit('shot', t, undefined, owner, { source: t.id, weapon, powered: power, muzzles: shots, ...(predictionId ? {shotId: predictionId} : {}) }); }
     return shots.length;
   }
   pacing() { return wavePacing(this.wave || 1); }
@@ -460,7 +559,7 @@ export class Simulation {
     else if (!pushed && norm) this.move(this.player, input.x / Math.max(1, norm) * stats.speed * dt, input.z / Math.max(1, norm) * stats.speed * dt, C.player.radius);
     this.moved += distance(start, this.player); this.player.angle = Math.atan2(input.aim.x - this.player.x, input.aim.z - this.player.z);
     this.player.cooldown -= dt; this.player.recoil = Math.max(0, this.player.recoil - dt * 7);
-    if ((input.fire || input.firePressed) && this.player.cooldown <= 0) { const shots = this.shoot(this.player, 'roma', stats.damage, this.powerTime > 0); this.player.cooldown = stats.cooldown / (this.powerTime > 0 || this.rapidTime > 0 ? 2 : 1); if (shots) this.fired++; }
+    if ((input.fire || input.firePressed) && this.player.cooldown <= 0) { const shots = this.shoot(this.player, 'roma', stats.damage, this.powerTime > 0, 'roma', this.player.angle, input.shotId); this.player.cooldown = stats.cooldown / (this.powerTime > 0 || this.rapidTime > 0 ? 2 : 1); if (shots) this.fired++; }
   }
   updatePickups(dt: number) {
     this.advanceLoot(dt);
@@ -560,3 +659,5 @@ export class Simulation {
     this.bullets = keep;
   }
 }
+
+export type SimulationCheckpoint = ReturnType<Simulation['exportCheckpoint']>;

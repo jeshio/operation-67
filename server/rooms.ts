@@ -1,105 +1,129 @@
+import { Room, matchMaker, definePlugins, type Client } from '@colyseus/core';
+import { WebRTCPlugin } from 'colyseus/plugins/webrtc';
+import { RoomState } from './state';
+import { rankRooms } from './matchmaking';
+import { BattleCoordinator } from './coordinator';
+import { NET } from '../src/net/config';
+import { pack, unpack } from '../src/net/codec';
+import { matches, validBatch, type BattleCheckpoint, type GamePacket, type HealthReport, type RoomInfo, type JoinRequest } from '../src/protocol';
 import { randomBytes } from 'node:crypto';
-import { CoopSimulation } from '../src/coop';
-import { emptyInput, type Input, type GameEvent } from '../src/simulation';
-import { validInput, PROTOCOL, type ClientMessage, type ServerMessage, type RoomInfo, type PresenceEvent } from '../src/protocol';
-
-export interface Peer { send(message:ServerMessage):void; close():void; token?:string; room?:Room; id?:number; seq:number; ack:number; controlEpoch?:number; input:Input; inputAt:number; messages:number; windowAt:number; }
-export class Room {
-  sim=new CoopSimulation(); peers=new Map<number,Peer>(); identities=new Map<string,number>(); disconnected=new Map<number,number>();
-  owner=-1; round=0; countdown:number|null=null; emptySince:number|null=null; events:GameEvent[]=[]; private nextId=-1; private presenceId=0; private lost=new Set<number>();
-  constructor(readonly code:string,readonly publicRoom:boolean){if(publicRoom)this.countdown=3;}
-  info():RoomInfo{return{code:this.code,public:this.publicRoom,owner:this.owner,round:this.round,countdown:this.countdown};}
-  private notify(id:number,kind:PresenceEvent['kind'],except?:number){
-    const m=this.sim.members.get(id);if(!m)return;
-    const event:PresenceEvent={id:++this.presenceId,playerId:id,name:m.name,kind};
-    for(const [other,p] of this.peers)if(other!==except)p.send({type:'presence',event});
-  }
-  join(peer:Peer,name:string,skin:number,now:number){
-    let id=this.identities.get(peer.token!);
-    const old=id===undefined?undefined:this.sim.members.get(id);
-    if(!old?.present&&[...this.sim.members.values()].filter(m=>m.present).length>=4)throw Error('В комнате уже четыре игрока.');
-    if(id===undefined){if(this.identities.size>=128)throw Error('Комната завершила набор. Создай новый бой.');id=this.nextId--;this.identities.set(peer.token!,id);}
-    const wasPresent=!!old?.present, wasLost=this.lost.delete(id);
-    const previous=this.peers.get(id);if(previous){previous.room=undefined;previous.close();}
-    const used=new Set([...this.sim.members.values()].filter(m=>m.present&&m.id!==id).map(m=>m.name));let display=name;
-    for(let i=2;used.has(display);i++)display=`${name.slice(0,12)} ·${i}`;
-    this.sim.addMember(id,display,skin);this.peers.set(id,peer);this.disconnected.delete(id);this.emptySince=null;
-    peer.room=this;peer.id=id;peer.seq=-1;peer.ack=-1;peer.input=emptyInput();peer.inputAt=now;
-    if(!this.peers.has(this.owner))this.owner=id;
-    peer.send({type:'joined',id,room:this.info()});this.snapshot(peer,[]);
-    if(!wasPresent)this.notify(id,'joined',id);else if(wasLost)this.notify(id,'returned',id);
-  }
-  disconnect(peer:Peer,now:number,leave=false){
-    if(peer.id===undefined||this.peers.get(peer.id)!==peer)return;
-    this.peers.delete(peer.id);const m=this.sim.members.get(peer.id)!;m.connected=false;
-    this.disconnected.set(peer.id,now);if(leave){m.present=false;this.disconnected.delete(peer.id);this.lost.delete(peer.id);this.notify(peer.id,'left');}
-    if(peer.id===this.owner)this.owner=this.peers.keys().next().value??peer.id;
-    if(!this.peers.size)this.emptySince=now;peer.room=undefined;
-  }
-  start(peer:Peer){if(peer.id!==this.owner)throw Error('Следующий бой запускает создатель комнаты.');if(this.sim.phase!=='menu'&&this.sim.phase!=='over')return;this.countdown=3;}
-  step(dt:number,now:number){
-    for(const [id,since] of this.disconnected){
-      if(now-since>=30000){this.sim.members.get(id)!.present=false;this.disconnected.delete(id);this.lost.delete(id);this.notify(id,'left');}
-      else if(now-since>=3000&&!this.lost.has(id)){this.lost.add(id);this.notify(id,'lost');}
+interface JoinOptions {identity:string;name:string;skin:number;foreground:boolean;public:boolean;version:number;registry:RoomRegistry;}
+class CheckedWebRTCPlugin extends WebRTCPlugin {
+  constructor(gate:(client:Client,size:number)=>boolean){super();
+    for(const [type,fn] of Object.entries(this.messages)){
+      (this.messages as Record<string,Function>)[type]=(client:Client,message:unknown)=>{
+        const size=JSON.stringify(message??null).length;
+        if(size<=NET.maxSignalBytes&&gate(client,size))(fn as Function)(client,message);
+      };
     }
-    if(!this.peers.size)return;
-    if(this.countdown!==null){this.countdown=Math.max(0,this.countdown-dt);if(!this.countdown){
-      this.countdown=null;this.round++;this.events=[];this.sim.start(false);
-      // Commands still in transit belong to the previous battle, including held abilities.
-      for(const p of this.peers.values()){p.input=emptyInput();p.inputAt=0;p.controlEpoch=0;}
-    }}
-    const inputs=new Map<number,Input>();
-    for(const [id,p] of this.peers){if(now-p.inputAt<300&&(p.controlEpoch??0)===(this.sim.members.get(id)?.tank.controlEpoch??0))inputs.set(id,p.input);p.ack=p.seq;p.input={...p.input,power:false,dash:false,firePressed:false};}
-    const epochs=new Map([...this.sim.members].map(([id,m])=>[id,m.tank.controlEpoch]));
-    this.sim.updateAll(dt,inputs);
-    for(const [id,p] of this.peers)if(epochs.get(id)!==this.sim.members.get(id)?.tank.controlEpoch){p.input=emptyInput();p.inputAt=0;}
-    this.events.push(...this.sim.drainEvents());
   }
-  snapshot(peer:Peer,events:GameEvent[],resync?:number){peer.send({type:'snapshot',room:this.info(),state:this.sim.state(),ack:peer.ack,events,eventCursor:this.sim.eventCursor,resync});}
-  broadcast(){const events=this.events.splice(0);for(const peer of this.peers.values())this.snapshot(peer,events);}
 }
-export class RoomService {
-  rooms=new Map<string,Room>(); guests=new Map<string,number>();
-  constructor(readonly maxRooms=32){}
-  receive(peer:Peer,data:unknown,now=Date.now()){
-    try{
-      // A mobile connection can deliver a second of valid input in one burst.
-      // Keep the sustained limit while allowing that burst to drain normally.
-      peer.messages=Math.max(0,peer.messages-Math.max(0,now-peer.windowAt)*.09);peer.windowAt=now;
-      if(++peer.messages>180)throw Error('Слишком много команд.');
-      if(!data||typeof data!=='object')throw Error('Неверное сообщение.');const m=data as ClientMessage;
-      if(m.type==='hello'){
-        if(m.version!==PROTOCOL)throw Error('Обнови страницу: версия игры изменилась.');
-        if(peer.token)return;
-        peer.token=typeof m.token==='string'&&this.guests.has(m.token)?m.token:randomBytes(24).toString('hex');
-        if(this.guests.size>=2000&&!this.guests.has(peer.token))throw Error('Сервер занят. Попробуй позже.');
-        this.guests.set(peer.token,now);peer.send({type:'welcome',token:peer.token});return;
-      }
-      if(!peer.token)throw Error('Сначала установи соединение.');this.guests.set(peer.token,now);
-      if(m.type==='join'){
-        if(peer.room)throw Error('Сначала выйди из текущей комнаты.');
-        const name=typeof m.name==='string'?m.name.trim().normalize('NFC'):'';
-        if(!/^[\p{L}\p{N} _.-]{1,16}$/u.test(name))throw Error('Имя: 1–16 букв, цифр, пробелов, точек или дефисов.');
-        if(!Number.isInteger(m.skin)||m.skin<0||m.skin>5)throw Error('Выбери танк.');
-        let room:Room|undefined;
-        if(m.mode==='code'){room=this.rooms.get(String(m.code).trim().toUpperCase());if(!room)throw Error('Комната не найдена или уже закрыта.');}
-        else if(m.mode==='quick')room=[...this.rooms.values()].filter(r=>r.publicRoom&&r.sim.phase!=='over'&&r.sim.phase!=='dying'&&[...r.sim.members.values()].filter(p=>p.present).length<4).sort((a,b)=>a.sim.wave-b.sim.wave)[0];
-        else if(m.mode!=='private'&&m.mode!=='public')throw Error('Неверный способ входа.');
-        if(!room){if(this.rooms.size>=this.maxRooms)throw Error('Все комнаты заняты. Попробуй позже.');let code:string;do{code=randomBytes(4).toString('hex').slice(0,6).toUpperCase();}while(this.rooms.has(code));room=new Room(code,m.mode!=='private');this.rooms.set(code,room);}
-        room.join(peer,name,m.skin,now);
-      }else if(m.type==='input'){
-        if(!peer.room||!validInput(m.input)||!Number.isSafeInteger(m.seq)||m.seq<0)return;
-        if(m.round!==undefined&&m.round!==peer.room.round)return;
-        if((m.controlEpoch??0)!==(peer.room.sim.members.get(peer.id!)?.tank.controlEpoch??0))return;
-        if(m.seq<=peer.seq)return;peer.seq=m.seq;peer.inputAt=now;peer.controlEpoch=m.controlEpoch??0;
-        peer.input={...m.input,firePressed:peer.input.firePressed||m.input.firePressed,power:peer.input.power||m.input.power,dash:peer.input.dash||m.input.dash};
-      }else if(m.type==='resync')peer.room?.snapshot(peer,[],Number.isSafeInteger(m.request)?m.request:undefined);
-      else if(m.type==='start')peer.room?.start(peer);
-      else if(m.type==='leave'){peer.room?.disconnect(peer,now,true);peer.send({type:'left'});}
-    }catch(error){peer.send({type:'error',message:error instanceof Error?error.message:'Не удалось выполнить действие.'});}
+export class BattleRoom extends Room<{state:RoomState}> {
+  plugins=definePlugins({webrtc:new CheckedWebRTCPlugin((client,size)=>this.limit(client,size))});
+  state=new RoomState();coordinator!:BattleCoordinator;registry!:RoomRegistry;
+  private peers=new Map<number,Client>();private identities=new Map<string,number>();private rates=new Map<string,{at:number;count:number;bytes:number}>();
+  onCreate(options:JoinOptions){
+    this.registry=options.registry;this.maxClients=NET.players;this.autoDispose=false;this.setPatchRate(100);
+    const code=this.registry.code();
+    this.coordinator=new BattleCoordinator(this.roomId,code,options.public,{
+      send:(id,type,value)=>{const peer=this.peers.get(id);if(peer)peer.send(type,['backup','candidate-check'].includes(type)?pack(value):value);},
+      broadcast:(type,value)=>this.broadcast(type,value),
+      changed:info=>{this.state.update(info);this.broadcast('info',info);},
+      closed:()=>{void this.disconnect();},
+    });
+    this.registry.rooms.set(this.roomId,this);
+    this.setMetadata({code,public:options.public,version:NET.version});
+    this.clock.setInterval(()=>this.coordinator.tick(),50);
+    this.onMessage('hello',client=>{if(!this.limit(client,32))return;const id=this.id(client);if(id!==undefined){client.send('joined',{id,info:this.coordinator.info});const cp=this.coordinator.checkpoints.at(-1);if(cp)client.send('backup',pack(cp));}});
+    this.onMessage('ping',(client,data)=>{if(this.limit(client,32)&&Number.isFinite(data?.at))client.send('pong',{at:data.at});});
+    this.onMessage('start',client=>{if(this.limit(client,32)){const id=this.id(client);if(id!==undefined)this.coordinator.start(id);}});
+    this.onMessage('leave',client=>{const id=this.id(client);if(id!==undefined){this.coordinator.disconnect(id,true);this.peers.delete(id);}void client.leave();});
+    this.onMessage('ready',(client,data)=>{if(!this.limit(client,64))return;const id=this.id(client);if(id!==undefined&&typeof data?.nonce==='string')this.coordinator.ready(id,data.nonce);});
+    this.onMessage('lease-request',(client,data)=>{const id=this.id(client);if(id!==undefined&&this.limit(client,64)&&Number.isSafeInteger(data?.nonce))this.coordinator.renew(id,data);});
+    for(const type of ['checkpoint','host-stopped'])this.onMessage(type,(client,data)=>{
+      const id=this.id(client);if(id===undefined||!(data instanceof Uint8Array)||!this.limit(client,data.byteLength))return;
+      try{this.coordinator.checkpoint(id,unpack<BattleCheckpoint>(data),type==='host-stopped');}catch{this.invalid(client);}
+    });
+    this.onMessage('health',(client,data:HealthReport)=>{
+      const id=this.id(client);if(id===undefined||!this.limit(client,512)||!data||typeof data.foreground!=='boolean'||!Array.isArray(data.links)||data.links.length>3)return;
+      const metric=(n:unknown)=>n===null||typeof n==='number'&&Number.isFinite(n)&&n>=0&&n<=10000;
+      if(!metric(data.stepP95)||!metric(data.serverRtt)||!data.links.every(l=>l&&Number.isSafeInteger(l.peerId)&&metric(l.directRtt)&&metric(l.relayRtt)&&Number.isFinite(l.loss)&&l.loss>=0&&l.loss<=1))return;
+      this.coordinator.health(id,data);
+    });
+    this.onMessage('relay',(client,data)=>{
+      const id=this.id(client);if(id===undefined||!Array.isArray(data?.targets)||data.targets.length>3||!(data.bytes instanceof Uint8Array)||!this.limit(client,data.bytes.length))return;
+      let packet:GamePacket;try{packet=unpack<GamePacket>(data.bytes);}catch{return this.invalid(client);}
+      if(!packet||typeof packet!=='object')return;
+      if(packet.kind==='snapshot'){if(!this.coordinator.authorized(id)||!matches(packet,this.coordinator.context)||!Number.isSafeInteger(packet.tick))return;}
+      else if(packet.kind==='input'){if(!validBatch(packet,id,this.coordinator.context)||data.targets.some((n:number)=>n!==this.coordinator.info.host))return;}
+      else if(!['ping','pong'].includes(packet.kind)||!Number.isSafeInteger((packet as any).id)||!Number.isFinite((packet as any).at)||data.bytes.length>256)return;
+      for(const target of new Set<number>(data.targets)){if(target===id)continue;const peer=this.peers.get(target);if(peer){const buffered=(peer.ref as {bufferedAmount?:number}).bufferedAmount??0;if(buffered>NET.maxBufferedBytes)continue;peer.send('relay',{sender:id,bytes:data.bytes});this.registry.metrics.bytesOut+=data.bytes.length;}}
+      this.registry.metrics.bytesIn+=data.bytes.length;
+    });
+    this.onMessage('route',(client,data)=>{const id=this.id(client);if(id!==undefined&&this.limit(client,64)&&['relay','direct'].includes(data?.route))this.registry.log({matchId:this.roomId,hostEpoch:this.coordinator.info.hostEpoch,playerId:id,route:data.route,peerId:data.peerId});});
   }
-  step(dt:number,now=Date.now()){
-    for(const [code,room] of this.rooms){if(room.emptySince!==null&&now-room.emptySince>=60000){this.rooms.delete(code);continue;}room.step(dt,now);}
-    for(const [token,last] of this.guests)if(now-last>86400000)this.guests.delete(token);
+  onAuth(_client:Client,options:JoinOptions){
+    if(options.version!==NET.version||!this.registry.validIdentity(options.identity))throw Error('VERSION');
+    if(typeof options.name!=='string'||!/^([\p{L}\p{N} _.-]){1,16}$/u.test(options.name)||!Number.isInteger(options.skin)||options.skin<0||options.skin>5||typeof options.foreground!=='boolean')throw Error('INVALID');
+    const returning=[...this.coordinator.seats.values()].some(p=>p.identity===options.identity&&p.present);
+    if(!returning&&this.coordinator.presentCount>=NET.players)throw Error('FULL');return true;
   }
+  onJoin(client:Client,options:JoinOptions){
+    const old=[...this.coordinator.seats.values()].find(p=>p.identity===options.identity);
+    if(old){const previous=this.peers.get(old.id);if(previous){this.identities.delete(previous.sessionId);previous.send('game-error',{code:'SESSION_REPLACED',message:'Игра открыта в другой вкладке.'});void previous.leave();}}
+    const id=this.coordinator.join(options.identity,options.name,options.skin,options.foreground,client.sessionId);
+    this.peers.set(id,client);this.identities.set(client.sessionId,id);
+  }
+  async replaceSession(identity:string){
+    const seat=[...this.coordinator.seats.values()].find(p=>p.identity===identity),previous=seat&&this.peers.get(seat.id);
+    if(!previous)return;
+    previous.send('game-error',{code:'SESSION_REPLACED',message:'Игра открыта в другой вкладке.'});
+    previous.leave();
+    // Colyseus must release its socket seat before a full room can reserve the replacement.
+    const until=performance.now()+1000;
+    while(this.clients.includes(previous)&&performance.now()<until)await new Promise(resolve=>setTimeout(resolve,5));
+  }
+  onLeave(client:Client){const id=this.id(client);this.identities.delete(client.sessionId);this.rates.delete(client.sessionId);if(id!==undefined&&this.peers.get(id)===client){this.peers.delete(id);this.coordinator.disconnect(id);}}
+  onDispose(){this.registry.rooms.delete(this.roomId);}
+  private id(client:Client){return this.identities.get(client.sessionId);}
+  private invalid(client:Client){client.send('game-error',{code:'INVALID',message:'Неверные сетевые данные.'});}
+  private limit(client:Client,bytes:number){
+    const now=performance.now(),r=this.rates.get(client.sessionId)??{at:now,count:0,bytes:0};const elapsed=Math.max(0,now-r.at);r.count=Math.max(0,r.count-elapsed*.15);r.bytes=Math.max(0,r.bytes-elapsed*2048);r.at=now;r.count++;r.bytes+=bytes;this.rates.set(client.sessionId,r);
+    if(bytes>NET.maxFrameBytes||r.count>300||r.bytes>4*NET.maxFrameBytes){void client.leave(4008);return false;}return true;
+  }
+}
+export class RoomRegistry {
+  rooms=new Map<string,BattleRoom>();private guests=new Map<string,number>();private serial:Promise<unknown>=Promise.resolve();
+  metrics={bytesIn:0,bytesOut:0,wireBytesIn:0,wireBytesOut:0};private events:unknown[]=[];
+  constructor(readonly maxRooms=4){}
+  code(){let code:string;do{code=randomBytes(3).toString('hex').toUpperCase();}while([...this.rooms.values()].some(r=>r.coordinator.info.code===code));return code;}
+  validIdentity(identity:string){return this.guests.has(identity);}
+  log(event:unknown){this.events.push({at:Date.now(),event});if(this.events.length>200)this.events.shift();}
+  join(body:{version:number;token?:string;request:JoinRequest;foreground?:boolean;rtt?:number}){
+    const work=this.serial.then(()=>this.reserve(body));this.serial=work.catch(()=>{});return work;
+  }
+  private async reserve(body:{version:number;token?:string;request:JoinRequest;foreground?:boolean;rtt?:number}){
+    if(body.version!==NET.version)throw Error('VERSION');const r=body.request;
+    if(!r||!['quick','private','public','code'].includes(r.mode))throw Error('INVALID');
+    const name=typeof r.name==='string'?r.name.trim().normalize('NFC'):'';
+    if(!/^[\p{L}\p{N} _.-]{1,16}$/u.test(name)||!Number.isInteger(r.skin)||r.skin<0||r.skin>5)throw Error('INVALID');
+    const now=Date.now();for(const [token,at] of this.guests)if(now-at>86400000)this.guests.delete(token);
+    const token=body.token&&this.guests.has(body.token)?body.token:randomBytes(24).toString('hex');
+    if(this.guests.size>=2000&&!this.guests.has(token))throw Error('BUSY');this.guests.set(token,now);
+    const options={identity:token,name,skin:r.skin,foreground:body.foreground!==false,public:r.mode!=='private',version:NET.version};
+    let candidates:BattleRoom[]=[];
+    if(r.mode==='code'){
+      const room=[...this.rooms.values()].find(room=>room.coordinator.info.code===String(r.code).trim().toUpperCase());if(!room)throw Error('NOT_FOUND');candidates=[room];
+    }else if(r.mode==='quick'){
+      // The joining player's coordinator RTT is a common additive cost for every room.
+      candidates=rankRooms([...this.rooms.values()].filter(room=>{
+        const c=room.coordinator,phase=c.checkpoints.at(-1)?.simulation.core.phase;return c.info.public&&c.info.stage!=='closed'&&c.presentCount<NET.players&&!['over','dying'].includes(phase??'');
+      }).map(room=>({room,hostRtt:room.coordinator.hostLatency(),wave:room.coordinator.checkpoints.at(-1)?.simulation.core.wave??0,players:room.coordinator.presentCount}))).map(r=>r.room);
+    }
+    for(const room of candidates){try{await room.replaceSession(token);return{token,reservation:await matchMaker.joinById(room.roomId,options)};}catch(error){if(r.mode==='code')throw Error(room.coordinator.presentCount>=NET.players?'FULL':'NOT_FOUND');}}
+    if(this.rooms.size>=this.maxRooms)throw Error('BUSY');
+    return{token,reservation:await matchMaker.create('battle',options)};
+  }
+  directory(){return [...this.rooms.values()].filter(r=>r.coordinator.info.public).map(r=>({roomId:r.roomId,players:r.coordinator.presentCount,wave:r.coordinator.checkpoints.at(-1)?.simulation.core.wave??0,hostRtt:r.coordinator.hostLatency()}));}
+  debug(){return{process:{uptime:process.uptime(),cpu:process.cpuUsage(),memory:process.memoryUsage()},rooms:[...this.rooms.values()].map(r=>r.coordinator.debug()),metrics:this.metrics,events:this.events};}
 }

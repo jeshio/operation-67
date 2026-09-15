@@ -4,3 +4,6 @@ dist/
 test-artifacts/
 dist-server/
 .env
+
+.patches/
+__pycache__/

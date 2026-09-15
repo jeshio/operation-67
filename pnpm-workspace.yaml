@@ -1,2 +1,4 @@
 allowBuilds:
   esbuild: true
+patchedDependencies:
+  '@colyseus/sdk@0.18.2': patches/@colyseus__sdk@0.18.2.patch
