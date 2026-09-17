@@ -1,6 +1,17 @@
 import { WebSocketTransport, type TransportOptions } from '@colyseus/ws-transport';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 /** Count actual WebSocket payloads, including framework state and checkpoints. */
 export class MeasuredTransport extends WebSocketTransport {
+ /** Colyseus installs its public HTTP router at listen time. This application
+  * deliberately exposes only its own HTTP API; internal matchMaker calls and
+  * WebSocket seat reservations are unaffected. Install before the next I/O turn. */
+ httpHandler?: (req:IncomingMessage,res:ServerResponse)=>void;
+ override listen(port:number,hostname?:string,backlog?:number,listeningListener?:()=>void){
+  return super.listen(port,hostname,backlog,()=>{
+   listeningListener?.();
+   if(this.httpHandler){this.server!.removeAllListeners('request');this.server!.on('request',this.httpHandler);}
+  });
+ }
  queueMetrics(){const sockets=[...this.wss.clients];return{connections:sockets.length,bufferedBytes:sockets.reduce((sum,s)=>sum+s.bufferedAmount,0),maxBufferedBytes:Math.max(0,...sockets.map(s=>s.bufferedAmount))};}
  constructor(options:TransportOptions,metrics:{wireBytesIn:number;wireBytesOut:number}){
   super(options);

@@ -1,0 +1,13 @@
+title = "Operation 67 secret checks"
+[extend]
+useDefault = true
+
+# Reviewed false positive: the public localStorage namespace, not a credential.
+[[rules]]
+id = 'generic-api-key'
+[[rules.allowlists]]
+description = 'Exact browser storage namespace in src/storage.ts only'
+condition = 'AND'
+paths = ['''(^|/)src/storage\.ts$''']
+regexTarget = 'secret'
+regexes = ['''^roma-operation-67-v1$''']

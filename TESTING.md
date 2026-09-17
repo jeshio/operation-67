@@ -1,3 +1,45 @@
+# Проверки безопасности — 17 сентября 2026
+
+Исходная точка: main, cd9039bd9562263dea14140f5219c418f8e4ce29. Результат текущего этапа: [SECURITY_BASELINE](docs/security/SECURITY_BASELINE.md). Все тесты этого этапа локальные; записи о публикациях ниже относятся к предыдущим работам.
+
+Использовать Node 24.21.0 из `.nvmrc`, pnpm 10.33.2 из packageManager и Python 3.11+. Установка строго по lockfile: `pnpm install --frozen-lockfile --ignore-scripts`, затем `pnpm rebuild esbuild` (единственный разрешённый build script). Реальные `.env` не нужны.
+
+```sh
+pnpm verify
+pnpm security:dependencies
+node scripts/security/install-tools.mjs
+pnpm security:tools
+node scripts/security/browser.mjs
+pnpm package:vps
+node scripts/security/test-archive.mjs
+```
+
+`verify` = typecheck + все unit/integration/security тесты + production build + проверка состава/одинакового SHA. Нового общего линтера проекта нет. Для браузера установить Chromium соответствующей версии Playwright: `pnpm exec playwright install chromium` (в CI --with-deps). Browser test использует production assets, CSP, обычный UI двух игроков, наблюдает Worker, WebRTC и AudioContext без QA globals; STUN отключён только тестовой обёрткой. Политика HTTP origins здесь локальная development, строгая production-конфигурация покрыта отдельным тестом. Внешний STUN/NAT и физические устройства этим тестом не подтверждаются.
+
+На Mac для проверки рабочего дерева: `pnpm package:vps --allow-dirty` и `node scripts/security/test-archive.mjs --allow-local`. Производственный архив собирает чистый Linux CI; dirty/чужая платформа отвергается release.sh. Тест распакованного runtime ограничивает чтение Node каталогом архива, чтобы исключить подхватывание пакетов из исходного проекта, создаёт комнату и проверяет health/readiness, SHA, отрицательный неверный SHA, SIGUSR2/SIGHUP и SIGTERM с конечным сроком.
+
+Изолированный тест release.sh (ни сети, ни реального systemd/VPS):
+
+```sh
+docker run --rm --network=none -v "$PWD:/work:ro" node:24.21.0-bookworm@sha256:6dac556d980b7f0e5498d08f08cee0ca67798b4ad6c23964a9214920e67758d0 bash /work/scripts/check-release-container.sh
+```
+
+При недоступности direct WebRTC в macOS проверить в существующем Linux browser image (отдельные контексты, STUN отключён; container bridge нужен для ICE):
+
+```sh
+docker run --rm --shm-size=1g -v "$PWD:/work:ro" -v "$PWD/test-artifacts:/work/test-artifacts" -w /work mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e node scripts/security/browser.mjs
+```
+
+Инструменты закреплены в scripts/security/tools.json: Gitleaks и actionlint скачиваются по официальным release URL и проверяются SHA-256 до запуска; Semgrep CE — image digest, network=none, metrics=off, локальные пять правил. Gitleaks проверяет всю Git-историю, текущий snapshot и готовые dist/dist-server. Единственное узкое исключение — публичное имя localStorage `roma-operation-67-v1` только в src/storage.ts; это не секрет. Actionlint проверяет workflow syntax/expression; shellcheck и pyflakes не установлены/не заявляются. Bash scripts дополнительно проверяются `bash -n`, release поведение — container fixtures.
+
+Dependency review: `node scripts/security/dependency-review.mjs BASE_FULL_SHA HEAD_FULL_SHA`; в PR берётся конкретный base/head граф из lockfile. Проверяются новые версии, источники, integrity из npm, install/prepare scripts; неизвестный источник/изменение integrity существующего пакета требует отдельного review. Новые небезопасные hooks не запускаются проверяющим script. Watcher tests не создают удалённых Issues.
+
+Немутирующий smoke для оператора: `pnpm smoke https://example.com FULL_COMMIT_SHA`; loopback-only HTTP требует явного `--allow-local-http`. Не запускать против production без поручения. В этом этапе публичные проверки не выполнялись.
+
+Отчёты и снимки находятся в игнорируемом test-artifacts/security. Ошибка сети/JSON/сканера — «проверка не выполнена», не «проблем нет». Локальные mocks не подтверждают GitHub permissions, реальное расписание, delivery notifications или VPS.
+
+---
+
 # Проверка расширения — 12 сентября 2026
 
 - 28 автоматических проверок прошли: базовые правила, расписание 45 волн, захват, рывок, бонусы, атаки, щиты, фазы боссов, серии, ограничения диктора, сохранения, пауза и поражение. Отдельно проверены длительность и ненулевая громкость восьми голосовых файлов.

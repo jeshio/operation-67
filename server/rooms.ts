@@ -7,19 +7,23 @@ import { NET } from '../src/net/config';
 import { pack, unpack } from '../src/net/codec';
 import { matches, validBatch, type BattleCheckpoint, type GamePacket, type HealthReport, type RoomInfo, type JoinRequest } from '../src/protocol';
 import { randomBytes } from 'node:crypto';
+import { object, validSignal } from './security';
 interface JoinOptions {identity:string;name:string;skin:number;foreground:boolean;public:boolean;version:number;registry:RoomRegistry;}
 class CheckedWebRTCPlugin extends WebRTCPlugin {
-  constructor(gate:(client:Client,size:number)=>boolean){super();
+  constructor(gate:(client:Client,size:number,target?:string)=>boolean){super();
     for(const [type,fn] of Object.entries(this.messages)){
       (this.messages as Record<string,Function>)[type]=(client:Client,message:unknown)=>{
-        const size=JSON.stringify(message??null).length;
-        if(size<=NET.maxSignalBytes&&gate(client,size))(fn as Function)(client,message);
+        let size:number;
+        try{size=Buffer.byteLength(JSON.stringify(message??null));}catch{void client.leave(4008);return;}
+        if(!gate(client,size,object(message)?message.targetId:undefined))return;
+        if(size>NET.maxSignalBytes||!validSignal(type,message)){void client.leave(4008);return;}
+        (fn as Function)(client,message);
       };
     }
   }
 }
 export class BattleRoom extends Room<{state:RoomState}> {
-  plugins=definePlugins({webrtc:new CheckedWebRTCPlugin((client,size)=>this.limit(client,size))});
+  plugins=definePlugins({webrtc:new CheckedWebRTCPlugin((client,size,target)=>this.limit(client,size)&&this.id(client)!==undefined&&(!target||target!==client.sessionId&&this.clients.some(peer=>peer.sessionId===target&&this.id(peer)!==undefined)))});
   state=new RoomState();coordinator!:BattleCoordinator;registry!:RoomRegistry;
   private peers=new Map<number,Client>();private identities=new Map<string,number>();private rates=new Map<string,{at:number;count:number;bytes:number}>();
   onCreate(options:JoinOptions){
@@ -32,6 +36,7 @@ export class BattleRoom extends Room<{state:RoomState}> {
       closed:()=>{void this.disconnect();},
     });
     this.registry.rooms.set(this.roomId,this);
+    this.setPrivate(!options.public);
     this.setMetadata({code,public:options.public,version:NET.version});
     this.clock.setInterval(()=>this.coordinator.tick(),50);
     this.onMessage('hello',client=>{if(!this.limit(client,32))return;const id=this.id(client);if(id!==undefined){client.send('joined',{id,info:this.coordinator.info});const cp=this.coordinator.checkpoints.at(-1);if(cp)client.send('backup',pack(cp));}});
@@ -60,9 +65,10 @@ export class BattleRoom extends Room<{state:RoomState}> {
       for(const target of new Set<number>(data.targets)){if(target===id)continue;const peer=this.peers.get(target);if(peer){const buffered=(peer.ref as {bufferedAmount?:number}).bufferedAmount??0;if(buffered>NET.maxBufferedBytes)continue;peer.send('relay',{sender:id,bytes:data.bytes});this.registry.metrics.bytesOut+=data.bytes.length;}}
       this.registry.metrics.bytesIn+=data.bytes.length;
     });
-    this.onMessage('route',(client,data)=>{const id=this.id(client);if(id!==undefined&&this.limit(client,64)&&['relay','direct'].includes(data?.route))this.registry.log({matchId:this.roomId,hostEpoch:this.coordinator.info.hostEpoch,playerId:id,route:data.route,peerId:data.peerId});});
+    this.onMessage('route',(client,data)=>{const id=this.id(client);if(id!==undefined&&this.limit(client,64)&&['relay','direct'].includes(data?.route)&&Number.isSafeInteger(data?.peerId)&&data.peerId!==id&&this.peers.has(data.peerId))this.registry.log({matchId:this.roomId,hostEpoch:this.coordinator.info.hostEpoch,playerId:id,route:data.route,peerId:data.peerId});});
   }
   onAuth(_client:Client,options:JoinOptions){
+    if(this.registry.draining)throw Error('BUSY');
     if(options.version!==NET.version||!this.registry.validIdentity(options.identity))throw Error('VERSION');
     if(typeof options.name!=='string'||!/^([\p{L}\p{N} _.-]){1,16}$/u.test(options.name)||!Number.isInteger(options.skin)||options.skin<0||options.skin>5||typeof options.foreground!=='boolean')throw Error('INVALID');
     const returning=[...this.coordinator.seats.values()].some(p=>p.identity===options.identity&&p.present);
@@ -94,17 +100,28 @@ export class BattleRoom extends Room<{state:RoomState}> {
 }
 export class RoomRegistry {
   rooms=new Map<string,BattleRoom>();private guests=new Map<string,number>();private serial:Promise<unknown>=Promise.resolve();
+  draining=false;private pending=0;
   metrics={bytesIn:0,bytesOut:0,wireBytesIn:0,wireBytesOut:0};private events:unknown[]=[];
   constructor(readonly maxRooms=4){}
   code(){let code:string;do{code=randomBytes(3).toString('hex').toUpperCase();}while([...this.rooms.values()].some(r=>r.coordinator.info.code===code));return code;}
   validIdentity(identity:string){return this.guests.has(identity);}
   log(event:unknown){this.events.push({at:Date.now(),event});if(this.events.length>200)this.events.shift();}
   join(body:{version:number;token?:string;request:JoinRequest;foreground?:boolean;rtt?:number}){
-    const work=this.serial.then(()=>this.reserve(body));this.serial=work.catch(()=>{});return work;
+    if(this.draining||this.pending>=64)return Promise.reject(Error('BUSY'));
+    this.pending++;const deadline=Date.now()+5000;let expired=false;
+    let timer:ReturnType<typeof setTimeout>;
+    const timeout=new Promise<never>((_resolve,reject)=>{timer=setTimeout(()=>{expired=true;reject(Error('BUSY'));},5000);});
+    const work=this.serial.then(()=>{if(expired||this.draining||Date.now()>=deadline)throw Error('BUSY');return this.reserve(body,deadline);}).finally(()=>this.pending--);
+    // Keep the actual work serialized even when the HTTP caller times out.
+    this.serial=work.catch(()=>{});return Promise.race([work,timeout]).finally(()=>clearTimeout(timer));
   }
-  private async reserve(body:{version:number;token?:string;request:JoinRequest;foreground?:boolean;rtt?:number}){
+  private async reserve(body:{version:number;token?:string;request:JoinRequest;foreground?:boolean;rtt?:number},deadline:number){
+    if(!object(body))throw Error('INVALID');
     if(body.version!==NET.version)throw Error('VERSION');const r=body.request;
-    if(!r||!['quick','private','public','code'].includes(r.mode))throw Error('INVALID');
+    if(!object(r)||!['quick','private','public','code'].includes(r.mode))throw Error('INVALID');
+    if(body.token!==undefined&&body.token!==''&&(typeof body.token!=='string'||!/^[a-f0-9]{48}$/.test(body.token)))throw Error('INVALID');
+    if(body.foreground!==undefined&&typeof body.foreground!=='boolean')throw Error('INVALID');
+    if(r.mode==='code'&&(typeof r.code!=='string'||!/^\s*[A-Fa-f0-9]{6}\s*$/.test(r.code)))throw Error('INVALID');
     const name=typeof r.name==='string'?r.name.trim().normalize('NFC'):'';
     if(!/^[\p{L}\p{N} _.-]{1,16}$/u.test(name)||!Number.isInteger(r.skin)||r.skin<0||r.skin>5)throw Error('INVALID');
     const now=Date.now();for(const [token,at] of this.guests)if(now-at>86400000)this.guests.delete(token);
@@ -120,8 +137,8 @@ export class RoomRegistry {
         const c=room.coordinator,phase=c.checkpoints.at(-1)?.simulation.core.phase;return c.info.public&&c.info.stage!=='closed'&&c.presentCount<NET.players&&!['over','dying'].includes(phase??'');
       }).map(room=>({room,hostRtt:room.coordinator.hostLatency(),wave:room.coordinator.checkpoints.at(-1)?.simulation.core.wave??0,players:room.coordinator.presentCount}))).map(r=>r.room);
     }
-    for(const room of candidates){try{await room.replaceSession(token);return{token,reservation:await matchMaker.joinById(room.roomId,options)};}catch(error){if(r.mode==='code')throw Error(room.coordinator.presentCount>=NET.players?'FULL':'NOT_FOUND');}}
-    if(this.rooms.size>=this.maxRooms)throw Error('BUSY');
+    for(const room of candidates){try{await room.replaceSession(token);if(this.draining||Date.now()>=deadline)throw Error('BUSY');return{token,reservation:await matchMaker.joinById(room.roomId,options)};}catch(error){if(error instanceof Error&&error.message==='BUSY')throw error;if(r.mode==='code')throw Error(room.coordinator.presentCount>=NET.players?'FULL':'NOT_FOUND');}}
+    if(this.draining||Date.now()>=deadline||this.rooms.size>=this.maxRooms)throw Error('BUSY');
     return{token,reservation:await matchMaker.create('battle',options)};
   }
   directory(){return [...this.rooms.values()].filter(r=>r.coordinator.info.public).map(r=>({roomId:r.roomId,players:r.coordinator.presentCount,wave:r.coordinator.checkpoints.at(-1)?.simulation.core.wave??0,hostRtt:r.coordinator.hostLatency()}));}

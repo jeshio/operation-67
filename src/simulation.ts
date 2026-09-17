@@ -544,7 +544,7 @@ export class Simulation {
       const contacts=[...this.enemies,...this.targetPlayers().filter(t=>t.id!==this.player.id),...(!this.network?[this.lev]:[])];
       for(const target of contacts){
         const enemy='kind' in target?target as Enemy:undefined;
-        const radius=enemy?C.enemy[enemy.kind].radius:target===this.lev&&!this.network?.52:C.player.radius;
+        const radius=enemy?C.enemy[enemy.kind].radius:target===this.lev&&!this.network ? 0.52 : C.player.radius;
         const dx=target.x-this.player.x,dz=target.z-this.player.z,len=Math.hypot(dx,dz);
         if(target.hp<=0||len>=C.player.radius+radius+B.dash.speed*dt+.12||(dx*this.dashDirection.x+dz*this.dashDirection.z)/Math.max(.01,len)<=.35||!this.lineOfSight(this.player,target,.05))continue;
         if(enemy&&!(this.player.ramHits??=[]).includes(enemy.id)){

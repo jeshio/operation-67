@@ -1,0 +1,36 @@
+rules:
+  - id: dynamic-code-execution
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Do not execute text as code in application code.
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+  - id: shell-execution-in-server
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: The game server must not invoke shell commands from input.
+    pattern-either:
+      - pattern: exec(...)
+      - pattern: execSync(...)
+      - pattern: "spawn($CMD, ..., { ..., shell: true, ... })"
+  - id: tls-verification-disabled
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: TLS verification must remain enabled.
+    pattern-either:
+      - pattern: process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+      - pattern: "{ ..., rejectUnauthorized: false, ... }"
+  - id: wildcard-cors
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Use an explicit origin policy for the multiplayer API.
+    pattern: $RES.setHeader('Access-Control-Allow-Origin', '*')
+  - id: environment-in-logs
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Do not log environment variables.
+    pattern-either:
+      - pattern: console.log(..., process.env, ...)
+      - pattern: console.log(..., process.env.$KEY, ...)
+      - pattern: console.error(..., process.env, ...)

@@ -1,0 +1,74 @@
+name: Security Watcher
+on:
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - patches/**
+      - Dockerfile
+      - compose.yaml
+      - .github/workflows/**
+      - scripts/security/**
+permissions:
+  contents: read
+concurrency:
+  group: security-watcher
+  cancel-in-progress: false
+jobs:
+  scan:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Prepare pnpm without installing project dependencies
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.33.2 --activate
+      - name: Scan official npm and GitHub advisories
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/security/watch-scan.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: watcher-report
+          path: test-artifacts/security/watch.json
+          retention-days: 30
+          if-no-files-found: error
+  notify:
+    needs: scan
+    if: always() && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+      checks: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: watcher-report
+          path: test-artifacts/security
+      - name: Notify only on meaningful changes or scanner failure
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/security/watch-issues.mjs

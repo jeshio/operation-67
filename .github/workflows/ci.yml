@@ -1,0 +1,72 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install locked dependencies
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.33.2 --activate
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm rebuild esbuild
+      - name: Review dependency changes
+        if: github.event_name == 'pull_request'
+        env:
+          REVIEW_BASE: ${{ github.event.pull_request.base.sha }}
+          REVIEW_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/security/dependency-review.mjs "$REVIEW_BASE" "$REVIEW_HEAD"
+      - run: pnpm verify
+      - run: pnpm security:dependencies
+      - name: Check pinned Actions against official advisories
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/security/actions-advisories.mjs
+      - name: Install verified security tools
+        run: node scripts/security/install-tools.mjs
+      - run: pnpm security:tools
+      - name: Browser security regression
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          node scripts/security/browser.mjs
+      - name: Test native archive
+        run: |
+          pnpm package:vps
+          node scripts/security/test-archive.mjs
+      - name: Test release script in disposable container
+        run: docker run --rm --network=none -v "$PWD:/work:ro" node:24.21.0-bookworm@sha256:6dac556d980b7f0e5498d08f08cee0ca67798b4ad6c23964a9214920e67758d0 bash /work/scripts/check-release-container.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: security-reports-${{ github.sha }}
+          path: |
+            test-artifacts/security/*.json
+            test-artifacts/security/*.log
+          retention-days: 14
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: success() && github.ref == 'refs/heads/main'
+        with:
+          name: linux-runtime-${{ github.sha }}
+          path: |
+            test-artifacts/roma67-vps.tar.gz
+            test-artifacts/roma67-vps.tar.gz.sha256
+          retention-days: 30
+          if-no-files-found: error

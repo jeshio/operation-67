@@ -141,5 +141,6 @@ try {
   }
 } catch (error) {
   console.error(error);
-  app.innerHTML = '<section class="error-card"><span class="kicker">ОПЕРАЦИЯ 67</span><h1>Танку нужна 3D-графика</h1><p>Не удалось запустить WebGL 2. Открой игру в современном Safari или Chrome. На компьютере проверь, что аппаратное ускорение включено.</p><button onclick="location.reload()" class="primary-button">ПОПРОБОВАТЬ ЕЩЁ РАЗ</button></section>';
+  app.innerHTML = '<section class="error-card"><span class="kicker">ОПЕРАЦИЯ 67</span><h1>Танку нужна 3D-графика</h1><p>Не удалось запустить WebGL 2. Открой игру в современном Safari или Chrome. На компьютере проверь, что аппаратное ускорение включено.</p><button class="primary-button">ПОПРОБОВАТЬ ЕЩЁ РАЗ</button></section>';
+  app.querySelector('button')!.onclick=()=>location.reload();
 }

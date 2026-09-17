@@ -7,3 +7,22 @@ dist-server/
 
 .patches/
 __pycache__/
+
+# Local tools, credentials and security reports (never release these).
+.tools/
+.pnpm-store/
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.sqlite*
+*.db
+*.sql
+*.sql.gz
+*.dump
+*.log
+credentials*.json
+secrets*.json
+.claude/settings.local.json

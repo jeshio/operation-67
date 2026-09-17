@@ -1,12 +1,25 @@
 services:
   game:
-    build: .
+    build:
+      context: .
+      args:
+        RELEASE_COMMIT: ${RELEASE_COMMIT:?Set full commit SHA from a verified checkout}
+        RELEASE_DIRTY: ${RELEASE_DIRTY:-true}
     restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 15s
+    mem_limit: 512m
+    pids_limit: 128
     environment:
       ALLOWED_ORIGINS: https://${GAME_DOMAIN:?Set GAME_DOMAIN in .env}
+      MAX_ROOMS: ${MAX_ROOMS:-4}
+      # Explicit immediate proxy IPs; configure after auditing the Docker network.
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-}
     expose: ["5179"]
   https:
-    image: caddy:2-alpine
+    image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     restart: unless-stopped
     ports: ["80:80", "443:443"]
     environment:
