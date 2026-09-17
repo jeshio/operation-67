@@ -15,6 +15,7 @@ test('Colyseus testing: real four-player room, reserved seats, session replaceme
   const g=new NetworkGame(backend,'token',undefined,{endpoint,webrtc:false});clients.push(g);await g.enter({type:'join',mode,code,name:`Игрок ${clients.length}`,skin:clients.length%6});await wait(()=>!!g.state,'join');return g;
  }
  try{
+  assert.equal((await (await fetch(endpoint+'/health')).json() as any).maxRooms,4);
   const oldStorage=storage(),first=await join(undefined,oldStorage),code=first.room!.code;await join(code);await join(code);await join(code);
   const room=testServer.getRoomById(first.room!.matchId);assert.equal(room.clients.length,4);assert.equal(app.rooms.rooms.size,1);
   const full=await fetch(endpoint+'/api/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({version:NET.version,request:{type:'join',mode:'code',code,name:'Пятый',skin:0}})});assert.equal((await full.json() as any).code,'FULL');

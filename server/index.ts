@@ -8,7 +8,10 @@ import { BattleRoom, RoomRegistry } from './rooms';
 import { NET } from '../src/net/config';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 const errors:Record<string,string>={VERSION:'Обнови страницу: версия игры изменилась.',FULL:'В комнате уже четыре игрока.',NOT_FOUND:'Комната не найдена или уже закрыта.',INVALID:'Проверь имя и выбранный танк.',BUSY:'Все комнаты заняты. Попробуй позже.'};
-export function createGameServer({root=resolve('dist'),origins=process.env.ALLOWED_ORIGINS?.split(',')??[],maxRooms=Math.min(process.env.GAME_QA==='1'?128:32,Math.max(1,Number(process.env.MAX_ROOMS)||4)),qa=process.env.GAME_QA==='1'}={}){
+export function roomLimitFromEnvironment(env:NodeJS.ProcessEnv=process.env){
+  return Math.min(env.GAME_QA==='1'?128:64,Math.max(1,Math.floor(Number(env.MAX_ROOMS)||4)));
+}
+export function createGameServer({root=resolve('dist'),origins=process.env.ALLOWED_ORIGINS?.split(',')??[],maxRooms=roomLimitFromEnvironment(),qa=process.env.GAME_QA==='1'}={}){
   const registry=new RoomRegistry(maxRooms);
   const lag=qa?monitorEventLoopDelay({resolution:10}):undefined;lag?.enable();
   const http=createServer();
@@ -19,7 +22,7 @@ export function createGameServer({root=resolve('dist'),origins=process.env.ALLOW
     if(req.method==='OPTIONS'){res.writeHead(204);res.end();return;}
     const json=(status:number,body:unknown)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(body));};
     const pathname=new URL(req.url??'/', 'http://localhost').pathname;
-    if(pathname==='/health'){json(200,{ok:true,version:NET.version,rooms:registry.rooms.size});return;}
+    if(pathname==='/health'){json(200,{ok:true,version:NET.version,rooms:registry.rooms.size,maxRooms:registry.maxRooms});return;}
     if(pathname==='/api/ping'){json(200,{ok:true,version:NET.version});return;}
     if(pathname==='/api/rooms'){json(200,registry.directory());return;}
     if(pathname==='/api/qa'&&qa){json(200,{...registry.debug(),runtime:{eventLoopP95Ms:(lag?.percentile(95)??0)/1e6,eventLoopP99Ms:(lag?.percentile(99)??0)/1e6,...transport.queueMetrics()}});lag?.reset();return;}
