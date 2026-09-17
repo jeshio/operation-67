@@ -1,4 +1,4 @@
-FROM node:24.21.0-alpine@sha256:be80f76cf40ec8e42b9bec49f60a55e0660f30af58d3e5a25530785b30ea67e2 AS build
+FROM node:26.0.0-alpine@sha256:30f5a66e7265ef70aac56b4753ffa7905e54eca1084bc25503893ad8e9273f05 AS build
 WORKDIR /game
 RUN corepack enable && corepack prepare pnpm@10.33.2 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -13,7 +13,7 @@ COPY index.html tsconfig.json ./
 ARG RELEASE_COMMIT
 ARG RELEASE_DIRTY=true
 RUN RELEASE_COMMIT="$RELEASE_COMMIT" RELEASE_DIRTY="$RELEASE_DIRTY" pnpm build && pnpm security:artifact && node scripts/package-vps.mjs /runtime.tar.gz --allow-dirty && mkdir /runtime && tar -xzf /runtime.tar.gz -C /runtime
-FROM node:24.21.0-alpine@sha256:be80f76cf40ec8e42b9bec49f60a55e0660f30af58d3e5a25530785b30ea67e2
+FROM node:26.0.0-alpine@sha256:30f5a66e7265ef70aac56b4753ffa7905e54eca1084bc25503893ad8e9273f05
 WORKDIR /game
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=5179
 COPY --from=build /runtime ./
