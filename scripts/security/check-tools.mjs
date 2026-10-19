@@ -21,7 +21,10 @@ if(['all','secrets','sast'].includes(selected)){
     if(['all','secrets'].includes(selected))run(resolve('.tools/gitleaks/gitleaks'),['dir',snapshot,'--redact=100','--no-banner','--config','scripts/security/gitleaks.toml','--report-format','json','--report-path','test-artifacts/security/secrets-working.json']);
     if(['all','sast'].includes(selected)){
       const {image}=JSON.parse(readFileSync('scripts/security/tools.json','utf8')).semgrep;
-      run('docker',['run','--rm','--network=none','--read-only','--cap-drop=ALL','--security-opt=no-new-privileges','--tmpfs','/tmp:rw,nosuid,nodev,size=256m','-e','HOME=/tmp','-e','SEMGREP_SEND_METRICS=off','-e','SEMGREP_ENABLE_VERSION_CHECK=0','-v',`${resolve('test-artifacts/security')}:/reports`,'-v',`${snapshot}:/src:ro`,'-w','/src',image,'semgrep','scan','--config','scripts/security/semgrep.yml','--metrics=off','--disable-version-check','--error','--strict','--no-git-ignore','--json-output','/reports/semgrep.json','server','src','scripts/security']);
+      // mkdtemp creates a 0700 directory: without capabilities, container root cannot
+      // read a Linux runner's snapshot. Use its owner for both input and report writes.
+      const owner=`${process.getuid()}:${process.getgid()}`;
+      run('docker',['run','--rm','--user',owner,'--network=none','--read-only','--cap-drop=ALL','--security-opt=no-new-privileges','--tmpfs','/tmp:rw,nosuid,nodev,size=256m','-e','HOME=/tmp','-e','SEMGREP_SEND_METRICS=off','-e','SEMGREP_ENABLE_VERSION_CHECK=0','-v',`${resolve('test-artifacts/security')}:/reports`,'-v',`${snapshot}:/src:ro`,'-w','/src',image,'semgrep','scan','--config','scripts/security/semgrep.yml','--metrics=off','--disable-version-check','--error','--strict','--no-git-ignore','--json-output','/reports/semgrep.json','server','src','scripts/security']);
     }
   }finally{rmSync(snapshot,{recursive:true,force:true});}
 }

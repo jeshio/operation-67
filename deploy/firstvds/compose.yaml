@@ -1,0 +1,41 @@
+name: operation67
+
+services:
+  game:
+    image: ${OPERATION67_IMAGE:?Set the image ID assembled from the verified CI runtime}
+    container_name: operation67-game
+    user: "1000:1000"
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=16m,uid=1000,gid=1000,mode=700"]
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "5179"
+      ALLOWED_ORIGINS: https://67.jeshio.ru
+      TRUSTED_PROXY_IPS: 172.31.67.2
+      # Preserve the existing limit; migration smoke is not a capacity benchmark.
+      MAX_ROOMS: "64"
+    mem_limit: 512m
+    cpus: 1
+    pids_limit: 128
+    stop_grace_period: 15s
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5179/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      edge:
+        ipv4_address: 172.31.67.3
+
+networks:
+  edge:
+    external: true
+    name: operation67-edge

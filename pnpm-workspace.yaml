@@ -2,3 +2,6 @@ allowBuilds:
   esbuild: true
 patchedDependencies:
   '@colyseus/sdk@0.18.2': patches/@colyseus__sdk@0.18.2.patch
+overrides:
+  proxy-addr@2.0.7: 2.0.8
+  source-map-js@1.2.1: 1.2.2

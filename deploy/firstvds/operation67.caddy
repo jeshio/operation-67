@@ -1,0 +1,15 @@
+67.jeshio.ru {
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=31536000"
+	request_body {
+		max_size 4096
+	}
+	reverse_proxy operation67-game:5179 {
+		transport http {
+			dial_timeout 3s
+			response_header_timeout 10s
+			max_conns_per_host 512
+		}
+		stream_close_delay 5m
+	}
+}
