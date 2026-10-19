@@ -1,0 +1,42 @@
+{
+	admin off
+	auto_https disable_redirects
+	default_bind 89.19.211.4
+	servers {
+		protocols h1 h2
+	}
+}
+
+https://89.19.211.4 {
+	tls {
+		issuer acme {
+			dir https://acme-v02.api.letsencrypt.org/directory
+			profile shortlived
+			disable_http_challenge
+		}
+	}
+	redir https://67.jeshio.ru{uri} 308
+}
+
+https://67.jeshio.ru {
+	tls {
+		issuer acme {
+			dir https://acme-v02.api.letsencrypt.org/directory
+			disable_http_challenge
+		}
+	}
+	request_body {
+		max_size 4096
+	}
+	reverse_proxy https://82.146.39.112 {
+		header_up Host 67.jeshio.ru
+		header_up X-Forwarded-For {remote_host}
+		transport http {
+			tls_server_name 67.jeshio.ru
+			dial_timeout 3s
+			response_header_timeout 10s
+			max_conns_per_host 512
+		}
+		stream_close_delay 5m
+	}
+}

@@ -1,0 +1,100 @@
+# Приёмка FirstVDS — 19.10.2026
+
+Игра работает в `/opt/operation-67` на 82.146.39.112. Публичный адрес:
+https://67.jeshio.ru/. Старый игровой процесс остановлен и disabled.
+
+## Проверенный выпуск
+
+- PR https://github.com/jeshio/operation-67/pull/16 объединён после успешного CI.
+- Runtime: чистый Linux/x64 commit `706455e57c51019f33c6455d4cf573f4ed65392e`.
+- Успешный CI: https://github.com/jeshio/operation-67/actions/runs/39209406488.
+- SHA256 архива из журнала CI и скачанного artifact совпала:
+  `e29a4ee1a8f8987f909c470184a2774010d0ca2f6549ee7942880299583fd58b`.
+- Immutable image ID:
+  `sha256:00a00795426cd4e6786df4dae551584f211610fb7464d9a7b6a26d610bb012be`.
+- Trusted archive.py проверил checksum, состав, manifests, clean Linux/x64
+  identity на VPS. Контейнерный build выполнил только COPY, без RUN payload.
+- Выпуск не содержит изменения документации, записанные после приёмки.
+
+## Выполненные проверки
+
+Полный PR CI и main CI прошли: verify (214 тестов), audit, Actions advisories,
+Gitleaks, actionlint, Semgrep, browser regression, native archive и release
+fixtures. High/critical 0; uuid moderate и elliptic low сохранены в отчётах
+по подтверждённому общему правилу владельца для всех проектов FirstVDS.
+
+Через закрытый SSH tunnel прошёл штатный smoke: exact release SHA, readiness,
+страница/ресурсы, security headers и закрытые маршруты. Затем четыре SDK-клиента
+с одного узла успешно подключились к одной комнате через WebSocket, проверен
+отказ для постороннего Origin. Эти проверки повторены через публичный HTTPS/WSS
+после переключения старого proxy. GAME_QA не включался.
+
+В обычном браузере опубликованный UI создал личную комнату, запустил бой,
+отрисовал арену и результат; тестовая сессия штатно завершена. Прямой HTTPS
+нового IP проверен с `curl --resolve` без insecure-флагов. Сертификат домена
+перенесён в managed storage Caddy; действителен до 12.12.2026.
+
+Контейнер: UID/GID 1000, rootfs read-only, RAM 512 MiB, CPU 1, нет host ports.
+В operation67-edge только игра (.3) и Caddy (.2). Порт 5179 на хосте не слушает;
+HTTP к public IP отказан локально на VPS и недоступен с другого VPS. TCP-проба
+на Mac сообщала connect, но HTTP ответа не было; она не использована как
+доказательство доступности или закрытия порта.
+
+До публичного переключения проверены drain/readiness 503, остановка, удаление
+локального image ID, загрузка сохранённого экспорта, пересоздание контейнера и
+готовность с тем же SHA. Это проверка восстановления первого нового образа,
+не заявление об откате на другую предыдущую версию: legacy rollback ручной.
+
+ID и StartedAt infra-caddy, jeshio-web и openclaw-gateway не изменились.
+Сайт jeshio.ru/com отвечает health=ok; OpenClaw healthy. Радиорелей не изменялся.
+
+Первый переход proxy сработал в rollback из-за проверки до открытия listener
+Caddy. Повтор с ограниченными readiness retries успешен. Старый игровой runtime
+остановлен только после подтверждения нового SHA через старый HTTPS.
+
+## Временный HTTPS bridge и завершение DNS
+
+REG.RU недоступен и оператору, и владельцу; DNS не изменён. A `67.jeshio.ru`
+по-прежнему указывает на 89.19.211.4. Старый `roma67-https.service` остаётся
+enabled/active и проксирует **HTTPS с проверкой сертификата** на 82.146.39.112,
+Host/TLS server name `67.jeshio.ru`. Legacy IP перенаправляет на домен.
+`roma67-game.service` inactive/disabled, зависимость Wants/After из HTTPS unit
+удалена. Две группы комнат не создаются.
+
+Только proxy игры на новом Caddy временно доверяет 89.19.211.4. Серверный Compose
+игры временно задаёт `TRUSTED_PROXY_IPS=172.31.67.2,89.19.211.4`: это сохраняет
+реальный client IP в цепочке, не доверяя присланному клиентом X-Forwarded-For.
+Старый proxy перезаписывает этот заголовок адресом непосредственного клиента.
+Доверие остальных проектов не изменено. Исходный direct Compose сохранён в
+`/opt/operation-67/operator/compose-direct.yaml`.
+
+Когда REG.RU снова откроется:
+
+1. Изменить **только A `67`** на 82.146.39.112; сохранить остальные DNS records.
+2. Проверить авторитетный DNS, HTTPS/WSS, exact release и браузерный UI напрямую.
+3. После истечения старого TTL и отсутствия старого трафика отключить только
+   `roma67-https.service`. Старый VPS ещё содержит радиорелей — не удалять его.
+4. Удалить `trusted_proxies 89.19.211.4` из `/opt/infra/sites/operation67.caddy`,
+   validate/reload Caddy. При следующем безопасном обновлении игры, после drain
+   и rooms=0, вернуть TRUSTED_PROXY_IPS к `172.31.67.2` и проверить readiness.
+5. Проверить автоматическое управление/renewal TLS нового Caddy. Пока DNS старый,
+   новая ACME challenge может не пройти; до 12.12.2026 переход должен завершиться.
+
+## Резерв и обслуживание
+
+На FirstVDS сохранены проверенный runtime, operator config, image ID и экспорт:
+`/var/backups/operation67/verified/706455e-image.tar.gz` (414 492 975 байт), SHA256
+`7fd79ff9d4514092822a5d02f4fbf035e4dd1c3883cbeb32db3b5d419c77e784`.
+Экспорт проверен gzip и реально загружен Docker при проверке восстановления.
+
+Вне VPS на Mac, в закрытом каталоге:
+`~/.local/share/firstvds-backups/operation67/706455e/` находятся CI archive,
+его checksum и image.tar.gz с такой же SHA256. Приватные инфраструктурные/TLS
+резервы до/после изменения — в `~/.local/share/firstvds-backups/infra/`.
+Старый legacy archive с TLS keys сохранён на FirstVDS по пути из README;
+не публиковать его в Git/CI.
+
+Приложению не нужны data volumes/БД. Текущие комнаты при restart теряются;
+браузерные сохранения остаются у игроков. 64 комнаты — сохранённый лимит,
+не измеренная capacity. Автодеплой не установлен: следующий выпуск выполняется
+оператором из успешного CI по процедуре README, после drain пустых комнат.

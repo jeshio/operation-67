@@ -3,6 +3,8 @@
 План первоначального перехода и дополнение по security-блокерам: [PLAN.md](PLAN.md).
 Контракт приложения и release gates остаются обязательными.
 
+Фактический выпуск и оставшийся DNS-переход: [ACCEPTANCE.md](ACCEPTANCE.md).
+
 ## Размещение
 
 - `/opt/operation-67`: отдельный Compose project `operation67`, контейнер
